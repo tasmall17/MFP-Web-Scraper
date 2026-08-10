@@ -27,11 +27,14 @@ Nothing here is subject-specific. Upload references, get a course.
 Needs Python 3.12+ and an [Anthropic API key](https://console.anthropic.com/).
 
 ```sh
-git clone https://github.com/tasmall17/my-favorite-professor.git
-cd my-favorite-professor
+# The -app suffix matters on macOS -- see the note at the bottom.
+git clone https://github.com/tasmall17/my-favorite-professor.git my-favorite-professor-app
+cd my-favorite-professor-app
 uv tool install --editable . --with patchright
 playwright install chromium          # only needed for capturing web pages
 ```
+
+Tested on Python 3.12 and 3.14.
 
 Then:
 
@@ -143,7 +146,10 @@ Don't clone this repo as `~/code/my-favorite-professor` next to a library at
 the *same directory*, and you'll end up with the app's source inside your
 material. The app detects and refuses to treat a source checkout as a library,
 but the tidy fix is to keep the two apart — clone it as
-`my-favorite-professor-app`, or anywhere outside `~/code`.
+`my-favorite-professor-app`, as the install command above does, or put it
+anywhere outside `~/code`.
+
+This is not hypothetical. It happened while building the app.
 
 ---
 
