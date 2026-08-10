@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>my-favorite-professor</title>
+<link rel="stylesheet" href="/static/styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>📘</text></svg>">
+</head>
+<body>
+
+<a class="skip" href="#reading">Skip to the reading</a>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-name">my-favorite-professor</span><!--
+ --><button class="ext" id="ext" aria-haspopup="listbox" aria-expanded="false"
+              title="Switch subject">
+      <span id="ext-label">.??</span>
+      <svg class="caret" viewBox="0 0 10 6" aria-hidden="true"><path d="M1 1l4 4 4-4"/></svg>
+    </button>
+  </div>
+
+  <div class="topbar-right">
+    <span class="lib-hint" id="lib-hint"></span>
+    <button class="avatar" id="avatar" aria-haspopup="menu" aria-expanded="false">
+      <span id="avatar-initials">··</span>
+    </button>
+  </div>
+
+  <!-- Subject switcher. The extension is the profile: .sh, .py, .js -->
+  <div class="pop pop-ext" id="ext-pop" role="listbox" hidden>
+    <p class="pop-title">Subjects</p>
+    <div id="ext-list"></div>
+    <form class="pop-new" id="new-topic-form">
+      <input id="new-topic" placeholder="new subject, e.g. sql" aria-label="New subject">
+      <button type="submit">Add</button>
+    </form>
+  </div>
+
+  <div class="pop pop-avatar" id="avatar-pop" role="menu" hidden>
+    <button role="menuitem" data-open="settings">Settings</button>
+    <button role="menuitem" data-open="upload">Add materials</button>
+    <a role="menuitem" href="#" id="open-profile">Learning profile</a>
+  </div>
+</header>
+
+<main class="shell">
+
+  <!-- ── material ───────────────────────────────────────────────── -->
+  <nav class="rail" aria-label="Material">
+    <div class="rail-head">
+      <h2>Material</h2>
+      <button class="ghost" data-open="upload" title="Add materials">＋</button>
+    </div>
+    <div id="rail-body"></div>
+  </nav>
+
+  <!-- ── reading ────────────────────────────────────────────────── -->
+  <section class="reading" id="reading" tabindex="-1">
+    <div id="reading-body">
+      <div class="empty" id="empty-reading">
+        <p class="empty-mark">.??</p>
+        <h2>Pick what you're studying</h2>
+        <p>Add a Markdown, text or PDF file and it becomes your first reading.
+           Or save a page while you're reading it:</p>
+        <code class="empty-cmd">mfp -py https://realpython.com/decorators</code>
+        <button class="primary" data-open="upload">Add materials</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── professor ──────────────────────────────────────────────── -->
+  <aside class="prof" id="prof" aria-label="Professor-Claude">
+    <header class="prof-head">
+      <span class="prof-mark" aria-hidden="true"></span>
+      <div>
+        <h2>Professor-Claude</h2>
+        <p id="prof-sub">Open a reading to ask about it</p>
+      </div>
+      <button class="ghost prof-close" id="prof-close" title="Hide">×</button>
+    </header>
+
+    <div class="prof-log" id="prof-log"></div>
+
+    <form class="prof-ask" id="prof-form">
+      <textarea id="prof-input" rows="1" placeholder="Ask about this section…"
+                aria-label="Ask Professor-Claude"></textarea>
+      <button type="submit" id="prof-send" title="Ask">Ask</button>
+    </form>
+    <p class="prof-meta" id="prof-meta"></p>
+  </aside>
+
+  <button class="prof-open" id="prof-open" title="Ask Professor-Claude">
+    <span aria-hidden="true">✦</span> Ask
+  </button>
+</main>
+
+<!-- ── settings ─────────────────────────────────────────────────── -->
+<dialog class="sheet" id="settings">
+  <form method="dialog"><button class="sheet-x" title="Close">×</button></form>
+  <h2>Settings</h2>
+
+  <section class="field">
+    <label for="api-key">Anthropic API key</label>
+    <p class="note">Stored in <code id="cfg-path">~/.config/my-favorite-professor/</code>
+       at mode 0600 and read only by this server. The browser never receives it.</p>
+    <div class="row">
+      <input id="api-key" type="password" placeholder="sk-ant-…" autocomplete="off">
+      <button class="ghost" id="key-clear" type="button">Remove</button>
+    </div>
+    <p class="status" id="key-status"></p>
+  </section>
+
+  <section class="field">
+    <label>Model</label>
+    <p class="note">How hard Claude works on your question.</p>
+    <div class="choices" id="model-choices"></div>
+  </section>
+
+  <section class="field" id="effort-field">
+    <label for="effort">Effort</label>
+    <p class="note" id="effort-note">Higher effort thinks longer before answering.</p>
+    <div class="segmented" id="effort"></div>
+  </section>
+
+  <section class="field">
+    <label>Second copy</label>
+    <p class="note">Also write every saved page to
+       <code id="mirror-path">~/Downloads</code> as self-contained HTML, so your
+       material works without this app.</p>
+    <label class="switch">
+      <input type="checkbox" id="mirror-toggle">
+      <span>Keep a copy in Downloads</span>
+    </label>
+  </section>
+
+  <section class="field">
+    <label for="initials">Your initials</label>
+    <div class="row">
+      <input id="initials" maxlength="3" placeholder="TS" style="max-width:6rem">
+    </div>
+  </section>
+
+  <p class="sheet-foot" id="settings-saved"></p>
+</dialog>
+
+<!-- ── upload ───────────────────────────────────────────────────── -->
+<dialog class="sheet" id="upload">
+  <form method="dialog"><button class="sheet-x" title="Close">×</button></form>
+  <h2>Add materials</h2>
+  <p class="note">Markdown, plain text or PDF. They stay on your machine.</p>
+
+  <section class="field">
+    <label for="upload-topic">Subject</label>
+    <select id="upload-topic"></select>
+  </section>
+
+  <label class="drop" id="drop">
+    <input type="file" id="file-input" multiple accept=".md,.markdown,.txt,.text,.pdf" hidden>
+    <span class="drop-mark">＋</span>
+    <span class="drop-main">Choose files or drop them here</span>
+    <span class="drop-sub">.md · .txt · .pdf</span>
+  </label>
+
+  <ul class="upload-log" id="upload-log"></ul>
+</dialog>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

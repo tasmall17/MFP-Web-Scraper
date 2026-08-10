@@ -1,0 +1,27 @@
+# Nothing personal should ever be in this repo. The three things that matter --
+# your API key, your learning profile, and your material library -- all live
+# outside the tree by design (~/.config, ~/.my-favorite-professor, and the
+# library root respectively). These entries are belt-and-braces in case someone
+# points a library at the checkout.
+config.json
+usr-learning-profile/
+usr-references-provided/
+claude-references-provided/
+*-professor/
+!professor/
+.mfp/
+.captures/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/
