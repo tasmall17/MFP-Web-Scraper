@@ -44,16 +44,83 @@ const HUES = [
   { a: "#3f7a2e", w: "#eef6ea" },  // moss
 ];
 
-function hueFor(name) {
+/* The same six subjects in the dark theme. This is a second table rather
+ * than a computed lightening because both halves have to be checked by eye:
+ * the accent has to clear contrast against a near-black panel, and the wash
+ * is a *background* -- the light values are near-white and would burn a hole
+ * in the page. Index for index with HUES, so a subject keeps its identity
+ * across a theme switch. */
+const HUES_DARK = [
+  { a: "#8f84ff", w: "#231f42" },  // violet
+  { a: "#3fb8ab", w: "#0f2c29" },  // teal
+  { a: "#e2a344", w: "#33260f" },  // amber
+  { a: "#6aa8e8", w: "#12253a" },  // blue
+  { a: "#d97fab", w: "#31182a" },  // plum
+  { a: "#7cbb63", w: "#182c14" },  // moss
+];
+
+function hueIndex(name) {
   let h = 0;
   for (const ch of name || "") h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  return HUES[h % HUES.length];
+  return h % HUES.length;
+}
+
+function hueFor(name, theme) {
+  const table = (theme || resolvedTheme()) === "dark" ? HUES_DARK : HUES;
+  return table[hueIndex(name)];
 }
 
 function applyHue(name) {
   const { a, w } = hueFor(name);
   document.documentElement.style.setProperty("--accent", a);
   document.documentElement.style.setProperty("--accent-wash", w);
+}
+
+/* ── theme ─────────────────────────────────────────────────────────
+ * Three states: "auto" follows the OS, "light" and "dark" override it.
+ * The choice is stamped on <html> as data-theme, which is what the CSS
+ * keys off, and remembered in localStorage. index.html applies the stored
+ * value before first paint so there is no flash of the wrong theme.
+ *
+ * The subject hue is not a CSS token that can simply be redeclared in a
+ * media query -- app.js sets it inline -- so every path that changes the
+ * theme has to re-apply it.
+ */
+const THEME_KEY = "mfp-theme";
+const THEMES = ["auto", "light", "dark"];
+
+function storedTheme() {
+  const value = localStorage.getItem(THEME_KEY);
+  return THEMES.includes(value) ? value : "auto";
+}
+
+function resolvedTheme(choice) {
+  const value = choice || storedTheme();
+  if (value !== "auto") return value;
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+function applyTheme(choice) {
+  const root = document.documentElement;
+  if (choice === "auto") root.removeAttribute("data-theme");
+  else root.setAttribute("data-theme", choice);
+  localStorage.setItem(THEME_KEY, choice);
+  applyHue(state.topic || "");
+  renderThemeButton();
+}
+
+function renderThemeButton() {
+  const button = $("#theme-toggle");
+  if (!button) return;
+  const choice = storedTheme();
+  const label = { auto: "Auto", light: "Light", dark: "Dark" }[choice];
+  button.textContent = "Theme: " + label;
+  button.setAttribute("aria-label", `Theme: ${label}. Click to change.`);
+}
+
+function cycleTheme() {
+  const next = THEMES[(THEMES.indexOf(storedTheme()) + 1) % THEMES.length];
+  applyTheme(next);
 }
 
 /* ── talking to the server ─────────────────────────────────────── */
@@ -544,6 +611,19 @@ async function refreshTopics(preferred) {
 function wire() {
   $("#ext").onclick = () => togglePop("ext-pop", "ext");
   $("#avatar").onclick = () => togglePop("avatar-pop", "avatar");
+
+  $("#theme-toggle").onclick = (event) => {
+    event.stopPropagation();   // keep the menu open while cycling
+    cycleTheme();
+  };
+  renderThemeButton();
+
+  // In "auto", a change to the OS setting has to re-pick the subject hue,
+  // since that one is set inline and no media query can reach it.
+  window.matchMedia("(prefers-color-scheme: dark)")
+        .addEventListener("change", () => {
+          if (storedTheme() === "auto") applyHue(state.topic || "");
+        });
 
   document.addEventListener("click", (event) => {
     if (!event.target.closest(".pop") && !event.target.closest("#ext")

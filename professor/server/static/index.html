@@ -5,6 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>my-favorite-professor</title>
 <link rel="stylesheet" href="/static/styles.css">
+<script>
+  /* Before first paint, or the page flashes light before app.js loads. */
+  try {
+    var t = localStorage.getItem("mfp-theme");
+    if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+  } catch (e) { /* private mode: fall back to the OS preference */ }
+</script>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>📘</text></svg>">
 </head>
 <body>
@@ -42,6 +49,7 @@
     <button role="menuitem" data-open="settings">Settings</button>
     <button role="menuitem" data-open="upload">Add materials</button>
     <a role="menuitem" href="#" id="open-profile">Learning profile</a>
+    <button role="menuitem" id="theme-toggle">Theme: Auto</button>
   </div>
 </header>
 

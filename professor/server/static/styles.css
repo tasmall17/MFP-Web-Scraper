@@ -39,9 +39,121 @@
   --prof-w: 23rem;
   --bar-h: 3.25rem;
 
-  --shadow: 0 1px 2px rgba(18,20,28,.05), 0 8px 24px -12px rgba(18,20,28,.18);
+  --shadow: 0 1px 2px rgba(var(--shadow-rgb),.05), 0 8px 24px -12px rgba(var(--shadow-rgb),.18);
   --radius: 10px;
+
+  /* Surfaces that stay inverted relative to the body: primary buttons, the
+     toast, the skip link. --ink doubles as that background, so the text on
+     it needs its own token or it cannot follow the theme. */
+  --on-ink:     #ffffff;
+
+  /* Code. `pre` is a deliberately inverted block in the light theme, which
+     means it cannot simply reuse --ink as a background -- in the dark theme
+     that would invert it right back to a white slab. */
+  --code-surface: #12141c;
+  --code-ink:     #dfe3ec;
+  --code-bg:      #eceef4;
+
+  --amber-wash: #fdf3e7;
+
+  --ok:          #0f7b52;
+  --danger:      #a3341a;
+  --danger-ink:  #8f3a1e;
+  --danger-wash: #fdf1ee;
+  --danger-rule: #f3d9d1;
+
+  /* Shadows are tinted with the body's own ink in the light theme and with
+     true black in the dark one, where a navy-tinted shadow reads as haze. */
+  --shadow-rgb: 18,20,28;
 }
+
+/* ── dark theme ──────────────────────────────────────────────────────
+   Only the tokens are redefined; no rule below this point is duplicated.
+
+   Three states, deliberately. An explicit choice stamps data-theme on
+   <html> and wins in both directions; with nothing stamped, the system
+   preference decides. The :not([data-theme="light"]) guard is what lets
+   "light" override a dark OS without a second set of overrides.
+
+   --ink inverts to a near-white, so every place it is used as *text* keeps
+   working untouched, and every place it is used as an inverted *background*
+   keeps working too, because --on-ink inverts with it.
+   ------------------------------------------------------------------ */
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ink:        #e9ebf2;
+    --ink-soft:   #c3c9d8;
+    --slate:      #98a1b4;
+    --slate-dim:  #6b7285;
+    --paper:      #14161e;
+    --panel:      #0e1016;
+    --rule:       #272c39;
+    --rule-soft:  #1b1f29;
+
+    --accent:     #8f84ff;
+    --accent-ink: #14161e;
+    --accent-wash:#231f42;
+
+    --amber:      #e2a344;
+    --amber-wash: #33260f;
+
+    --on-ink:     #14161e;
+
+    --code-surface: #1b2029;
+    --code-ink:     #dfe3ec;
+    --code-bg:      #262b38;
+
+    --ok:          #4ec98d;
+    --danger:      #ff8a6b;
+    --danger-ink:  #ffb5a1;
+    --danger-wash: #2d1712;
+    --danger-rule: #4a2418;
+
+    --shadow-rgb: 0,0,0;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.7);
+  }
+}
+
+:root[data-theme="dark"] {
+  --ink:        #e9ebf2;
+  --ink-soft:   #c3c9d8;
+  --slate:      #98a1b4;
+  --slate-dim:  #6b7285;
+  --paper:      #14161e;
+  --panel:      #0e1016;
+  --rule:       #272c39;
+  --rule-soft:  #1b1f29;
+
+  --accent:     #8f84ff;
+  --accent-ink: #14161e;
+  --accent-wash:#231f42;
+
+  --amber:      #e2a344;
+  --amber-wash: #33260f;
+
+  --on-ink:     #14161e;
+
+  --code-surface: #1b2029;
+  --code-ink:     #dfe3ec;
+  --code-bg:      #262b38;
+
+  --ok:          #4ec98d;
+  --danger:      #ff8a6b;
+  --danger-ink:  #ffb5a1;
+  --danger-wash: #2d1712;
+  --danger-rule: #4a2418;
+
+  --shadow-rgb: 0,0,0;
+  --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.7);
+}
+
+/* Form controls and scrollbars follow the theme rather than staying
+   stubbornly light. Without this the native select and the scrollbar are
+   the only two white rectangles left on a dark page. */
+:root[data-theme="dark"], :root:not([data-theme="light"]) { color-scheme: light dark; }
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"]  { color-scheme: dark; }
 
 * { box-sizing: border-box; }
 
@@ -66,7 +178,7 @@ button { cursor: pointer; }
 
 .skip {
   position: absolute; left: -999px; top: 0; z-index: 100;
-  background: var(--ink); color: #fff; padding: .6rem 1rem; border-radius: 0 0 8px 0;
+  background: var(--ink); color: var(--on-ink); padding: .6rem 1rem; border-radius: 0 0 8px 0;
 }
 .skip:focus { left: 0; }
 
@@ -262,7 +374,7 @@ button { cursor: pointer; }
   background: var(--accent-wash); color: var(--accent);
   font-weight: 600; letter-spacing: .02em;
 }
-.tag.claude { background: #fdf3e7; color: var(--amber); }
+.tag.claude { background: var(--amber-wash); color: var(--amber); }
 
 .doc h1 {
   margin: 0;
@@ -299,17 +411,17 @@ button { cursor: pointer; }
 
 .prose code {
   padding: .1em .32em; border-radius: 4px;
-  background: #eceef4;
+  background: var(--code-bg);
   font: 400 .82em/1.4 var(--mono);
   color: var(--ink);
 }
 .prose pre {
   margin: 0 0 1.25rem; padding: .9rem 1.05rem;
-  background: var(--ink); border-radius: 8px;
+  background: var(--code-surface); border-radius: 8px;
   overflow-x: auto;
 }
 .prose pre code {
-  padding: 0; background: none; color: #dfe3ec;
+  padding: 0; background: none; color: var(--code-ink);
   font-size: 12.5px; line-height: 1.6;
 }
 
@@ -345,7 +457,7 @@ button { cursor: pointer; }
 .primary {
   padding: .5rem 1rem;
   border: 0; border-radius: 7px;
-  background: var(--ink); color: #fff;
+  background: var(--ink); color: var(--on-ink);
   font-size: 14px; font-weight: 500;
 }
 .primary:hover { background: var(--ink-soft); }
@@ -401,20 +513,20 @@ button { cursor: pointer; }
 .msg-prof .msg-body > *:last-child { margin-bottom: 0; }
 .msg-prof .msg-body p { margin: 0 0 .8rem; }
 .msg-prof .msg-body code {
-  padding: .08em .3em; border-radius: 4px; background: #eceef4;
+  padding: .08em .3em; border-radius: 4px; background: var(--code-bg);
   font: 400 .84em var(--mono);
 }
 .msg-prof .msg-body pre {
   margin: 0 0 .8rem; padding: .7rem .85rem;
-  background: var(--ink); border-radius: 7px; overflow-x: auto;
+  background: var(--code-surface); border-radius: 7px; overflow-x: auto;
 }
-.msg-prof .msg-body pre code { background: none; color: #dfe3ec; font-size: 12px; }
+.msg-prof .msg-body pre code { background: none; color: var(--code-ink); font-size: 12px; }
 .msg-prof .msg-body ul, .msg-prof .msg-body ol { margin: 0 0 .8rem; padding-left: 1.2rem; }
 
 .msg-err .msg-body {
   padding: .55rem .7rem; border-radius: 8px;
-  background: #fdf1ee; border: 1px solid #f3d9d1;
-  font-size: 13.5px; color: #8f3a1e;
+  background: var(--danger-wash); border: 1px solid var(--danger-rule);
+  font-size: 13.5px; color: var(--danger-ink);
 }
 
 .clicked {
@@ -425,7 +537,7 @@ button { cursor: pointer; }
 }
 .clicked:hover { border-color: var(--amber); color: var(--amber); }
 .clicked[data-on="1"] {
-  border-color: var(--amber); background: #fdf3e7; color: var(--amber); font-weight: 600;
+  border-color: var(--amber); background: var(--amber-wash); color: var(--amber); font-weight: 600;
 }
 
 .prof-empty { margin: auto 0; padding: 1rem .25rem; color: var(--slate-dim); font-size: 13px; }
@@ -446,7 +558,7 @@ button { cursor: pointer; }
 .prof-ask textarea:focus { border-color: var(--accent); outline: none; }
 .prof-ask button {
   padding: .5rem .8rem; border: 0; border-radius: 8px;
-  background: var(--ink); color: #fff; font-size: 13.5px; font-weight: 500;
+  background: var(--ink); color: var(--on-ink); font-size: 13.5px; font-weight: 500;
 }
 .prof-ask button:disabled { opacity: .4; cursor: default; }
 
@@ -461,7 +573,7 @@ button { cursor: pointer; }
   display: none; align-items: center; gap: .4rem;
   padding: .55rem .9rem;
   border: 0; border-radius: 999px;
-  background: var(--ink); color: #fff;
+  background: var(--ink); color: var(--on-ink);
   font-size: 13.5px; font-weight: 500;
   box-shadow: var(--shadow);
 }
@@ -474,9 +586,9 @@ button { cursor: pointer; }
   padding: 1.5rem;
   border: 1px solid var(--rule); border-radius: 14px;
   background: var(--paper); color: var(--ink);
-  box-shadow: 0 24px 60px -20px rgba(18,20,28,.35);
+  box-shadow: 0 24px 60px -20px rgba(var(--shadow-rgb),.35);
 }
-.sheet::backdrop { background: rgba(18,20,28,.32); backdrop-filter: blur(2px); }
+.sheet::backdrop { background: rgba(var(--shadow-rgb),.32); backdrop-filter: blur(2px); }
 .sheet h2 { margin: 0 0 1.25rem; font-size: 1.05rem; font-weight: 600; }
 .sheet-x {
   position: absolute; top: .85rem; right: .9rem;
@@ -505,8 +617,8 @@ button { cursor: pointer; }
 .row .ghost { border: 1px solid var(--rule); padding: .45rem .7rem; font-size: 13px; }
 
 .status { margin: .45rem 0 0; font-size: 12.5px; color: var(--slate); }
-.status[data-ok="1"] { color: #0f7b52; }
-.status[data-ok="0"] { color: #a3341a; }
+.status[data-ok="1"] { color: var(--ok); }
+.status[data-ok="0"] { color: var(--danger); }
 
 .choices { display: grid; gap: .5rem; }
 .choice {
@@ -528,7 +640,7 @@ button { cursor: pointer; }
 }
 .segmented button[aria-pressed="true"] {
   background: var(--paper); color: var(--ink); font-weight: 600;
-  box-shadow: 0 1px 2px rgba(18,20,28,.08);
+  box-shadow: 0 1px 2px rgba(var(--shadow-rgb),.08);
 }
 
 .switch { display: flex; align-items: center; gap: .5rem; font-size: 13.5px; }
@@ -555,8 +667,8 @@ button { cursor: pointer; }
 }
 .upload-log .name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .upload-log .info { margin-left: auto; font: 400 11.5px var(--mono); color: var(--slate-dim); flex: none; }
-.upload-log li[data-state="err"] { background: #fdf1ee; color: #8f3a1e; }
-.upload-log li[data-state="err"] .info { color: #a3341a; }
+.upload-log li[data-state="err"] { background: var(--danger-wash); color: var(--danger-ink); }
+.upload-log li[data-state="err"] .info { color: var(--danger); }
 
 /* ── toast ───────────────────────────────────────────────────────── */
 
@@ -564,7 +676,7 @@ button { cursor: pointer; }
   position: fixed; left: 50%; bottom: 1.5rem; z-index: 90;
   transform: translateX(-50%);
   padding: .55rem .9rem;
-  border-radius: 8px; background: var(--ink); color: #fff;
+  border-radius: 8px; background: var(--ink); color: var(--on-ink);
   font-size: 13.5px; box-shadow: var(--shadow);
   animation: rise .2s ease both;
 }
