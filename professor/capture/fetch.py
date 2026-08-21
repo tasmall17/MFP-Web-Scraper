@@ -13,6 +13,7 @@ rather than fought.
 from __future__ import annotations
 
 import ssl
+import sys
 import time
 from dataclasses import dataclass, field
 from urllib.parse import urljoin, urlparse
@@ -217,6 +218,49 @@ async () => {
 """
 
 
+# Chromium ships as a binary but not as its dependencies, and the failure when
+# they are absent is a linker error naming one library at a time -- fix that
+# one and the next appears. `playwright install-deps` resolves the whole set,
+# but it only knows apt, so on Fedora it exits without doing anything and the
+# user is left with the same linker error. Naming the dnf group here turns a
+# multi-round guessing game into one command.
+_FEDORA_BROWSER_DEPS = (
+    "sudo dnf install -y nss nspr atk at-spi2-atk at-spi2-core cups-libs "
+    "libdrm libxkbcommon libXcomposite libXdamage libXfixes libXrandr "
+    "mesa-libgbm alsa-lib pango cairo"
+)
+
+
+def _launch_hint(exc: Exception) -> str:
+    """Turn a bare linker error into the command that fixes it.
+
+    Only fires on Linux, and only for the shapes of failure that actually mean
+    "the browser is there but cannot load". A launch failing for some other
+    reason should not be answered with an irrelevant install command.
+    """
+    if not sys.platform.startswith("linux"):
+        return ""
+    text = str(exc).lower()
+    missing_libs = (
+        "error while loading shared libraries" in text
+        or "cannot open shared object file" in text
+        or "missing dependencies" in text
+        or "host system is missing" in text
+    )
+    if missing_libs:
+        return (
+            "\n\nChromium is installed but cannot load its system libraries. "
+            "On Fedora, `playwright install-deps` does not cover dnf; install "
+            f"them directly:\n  {_FEDORA_BROWSER_DEPS}"
+        )
+    if "executable doesn't exist" in text or "looks like playwright" in text:
+        return (
+            "\n\nThe browser itself is missing. Install it with:"
+            "\n  playwright install chromium"
+        )
+    return ""
+
+
 def _render_with(driver_module, url: str, tier: str, *, channel: str | None = None):
     """Drive a Playwright-compatible module through one page capture.
 
@@ -231,7 +275,9 @@ def _render_with(driver_module, url: str, tier: str, *, channel: str | None = No
         try:
             browser = pw.chromium.launch(**launch_kwargs)
         except Exception as exc:
-            raise FetchError(f"could not launch browser: {exc}", tier) from exc
+            raise FetchError(
+                f"could not launch browser: {exc}{_launch_hint(exc)}", tier
+            ) from exc
         try:
             context = browser.new_context(
                 user_agent=BROWSER_HEADERS["User-Agent"],

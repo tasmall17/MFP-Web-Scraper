@@ -22,7 +22,7 @@ Nothing here is subject-specific. Upload references, get a course.
 
 ---
 
-## Install
+## Install (macOS)
 
 Needs Python 3.12+ and an [Anthropic API key](https://console.anthropic.com/).
 
@@ -34,7 +34,10 @@ uv tool install --editable . --with patchright
 playwright install chromium          # only needed for capturing web pages
 ```
 
-Tested on Python 3.12 and 3.14.
+Tested on Python 3.12 and 3.14, on macOS and Fedora.
+
+> On Linux, follow [Install on Linux (Fedora)](#install-on-linux-fedora)
+> instead -- there are three extra steps.
 
 Then:
 
@@ -45,6 +48,82 @@ my-favorite-professor serve
 It opens in your browser. Paste your API key into Settings on first run.
 
 > `mfp` is installed as a shorter alias for the same command.
+
+---
+
+## Install on Linux (Fedora)
+
+The same four commands, with three things Fedora needs that macOS does not.
+
+**1. Get `uv`.** Fedora 41+ packages it; the installer script works anywhere.
+
+```sh
+sudo dnf install -y uv          # or:
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+**2. Install the app.** Identical to macOS. Fedora 40+ already ships Python
+3.12, and `uv` fetches its own if yours is older.
+
+```sh
+git clone https://github.com/tasmall17/my-favorite-professor.git my-favorite-professor-app
+cd my-favorite-professor-app
+uv tool install --editable . --with patchright
+```
+
+**3. Put `~/.local/bin` on your `PATH`.** This is the step that catches people,
+and it catches zsh users specifically. Fedora adds `~/.local/bin` to `PATH`
+from `/etc/profile.d/`, which bash reads and a default zsh install does not --
+so `uv` reports success and `mfp` is still "command not found".
+
+```sh
+# zsh
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && exec zsh
+```
+
+Check it took:
+
+```sh
+which mfp        # -> ~/.local/bin/mfp
+```
+
+**4. Chromium's system libraries**, only if you want `mfp <url>` capture. The
+browser binary and the libraries it links against are separate installs, and
+`playwright install-deps` only knows apt -- on Fedora it exits without
+installing anything, leaving a linker error that names one missing library at a
+time.
+
+```sh
+sudo dnf install -y nss nspr atk at-spi2-atk at-spi2-core cups-libs \
+  libdrm libxkbcommon libXcomposite libXdamage libXfixes libXrandr \
+  mesa-libgbm alsa-lib pango cairo
+playwright install chromium
+```
+
+Skip this and everything still works except web capture; uploading `.md`,
+`.txt` and `.pdf` from Settings needs none of it. If you do skip it and then
+try a capture, the error tells you this command.
+
+Verify the capture ladder end to end:
+
+```sh
+mfp --self-test
+```
+
+### What differs from macOS
+
+| | macOS | Fedora |
+|---|---|---|
+| Library | `~/code/My-Favorite-Professor` | same; `~/Code` and `~/Documents` also checked |
+| Config | `~/.config/my-favorite-professor/` | same, or `$XDG_CONFIG_HOME` |
+| Second copy | `~/Downloads/` | your real download dir, from `user-dirs.dirs` |
+| Opening files | `open` | `xdg-open` |
+| Clone name | must not collide — see below | collision is impossible |
+
+Nothing needs configuring for any of those; they are detected. If your desktop
+is not in English, the Downloads mirror follows the translated directory name
+(`~/Descargas`, `~/Téléchargements`) rather than creating an English one your
+file manager never shows.
 
 ---
 
