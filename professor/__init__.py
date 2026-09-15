@@ -1,22 +1,16 @@
-"""my-favorite-professor -- learn a subject from material you chose yourself.
+"""mfp-web-scraper -- a web page becomes a note you can actually read.
 
-Point it at your own references (.md, .txt, .pdf, or a web page you captured),
-and it maps them into a course you read in the browser, with a Claude on the
-right that you can ask about whatever section you're looking at.
+Give it a URL and it returns two things: a readable Markdown note, and a
+hidden archive holding the page with its images normalised and inlined, so
+the material still works offline.
 
-The parts, roughly in the order material flows through them:
-
-    capture/    a web page -> a readable note + a hidden, re-compilable archive
-    ingest      a local file -> the same bundle shape, so everything downstream
-                is identical whether it came from the web or your disk
+    capture/    the whole scraper -- fetch ladder, extraction, assets, CLI
     mirror      the second copy, into ~/Downloads
-    course      the corpus -> a syllabus you can navigate
-    professor   Professor-Claude: chat, expand, synthesise
-    profile     what makes an explanation land for *you*, accumulated over time
-    server      the local app the browser talks to
+    markdown    Markdown -> HTML for the compiled archive
+    config      where the library lives, and whether to mirror
 
-The API key lives in ~/.config/my-favorite-professor/config.json and is read
-only by the server process. The browser never sees it.
+This is the capture half of my-favorite-professor, packaged on its own.
+There is no server, no API key, and nothing that talks to Anthropic.
 """
 
 from __future__ import annotations

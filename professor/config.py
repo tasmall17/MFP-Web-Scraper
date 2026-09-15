@@ -14,8 +14,7 @@ from __future__ import annotations
 
 import json
 import os
-import stat
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -73,121 +72,29 @@ def _xdg_download_dir() -> Path:
 CONFIG_DIR = _xdg_config_home() / APP_NAME
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
-# The profile is deliberately outside both the library and the repo: it is
-# about *you*, not about any one subject, so it should outlive any particular
-# library and follow you to the next one.
-PROFILE_HOME = Path.home() / f".{APP_NAME}"
-PROFILE_DIR = PROFILE_HOME / "usr-learning-profile"
-
 DOWNLOADS_MIRROR = _xdg_download_dir() / APP_NAME
-
-
-# --------------------------------------------------------------------- models
-
-@dataclass(frozen=True)
-class ModelSpec:
-    """What a model will actually accept.
-
-    This table exists because the request parameters are *not* uniform across
-    the three models offered in Settings, and the mismatches are 400s rather
-    than warnings:
-
-      * `output_config.effort` is generally available on Opus 5 and Sonnet 5.
-        Sending it to Haiku 4.5 is an error, so the effort control has to
-        disappear from the UI when Haiku is selected -- not merely be ignored.
-      * `thinking: {type: "adaptive"}` is likewise not a Haiku 4.5 parameter.
-      * The minimum cacheable prefix differs, and falling under it doesn't warn
-        -- it just silently doesn't cache. Since a lesson's source text is
-        re-sent on every turn, that difference is most of the running cost.
-    """
-
-    id: str
-    label: str
-    blurb: str
-    supports_effort: bool
-    supports_adaptive_thinking: bool
-    cache_min_tokens: int
-    efforts: tuple[str, ...] = ()
-
-    def as_dict(self) -> dict[str, Any]:
-        return {
-            "id": self.id,
-            "label": self.label,
-            "blurb": self.blurb,
-            "supports_effort": self.supports_effort,
-            "efforts": list(self.efforts),
-            "cache_min_tokens": self.cache_min_tokens,
-        }
-
-
-EFFORTS = ("low", "medium", "high", "xhigh", "max")
-
-MODELS: dict[str, ModelSpec] = {
-    "claude-opus-5": ModelSpec(
-        id="claude-opus-5",
-        label="Opus",
-        blurb="Break it right down. Best when the topic is new to you.",
-        supports_effort=True,
-        supports_adaptive_thinking=True,
-        cache_min_tokens=512,
-        efforts=EFFORTS,
-    ),
-    "claude-sonnet-5": ModelSpec(
-        id="claude-sonnet-5",
-        label="Sonnet",
-        blurb="Quick and capable. Good for recap and revision.",
-        supports_effort=True,
-        supports_adaptive_thinking=True,
-        cache_min_tokens=1024,
-        efforts=EFFORTS,
-    ),
-    "claude-haiku-4-5": ModelSpec(
-        id="claude-haiku-4-5",
-        label="Haiku",
-        blurb="Fastest and cheapest. Short definitions and lookups.",
-        supports_effort=False,
-        supports_adaptive_thinking=False,
-        cache_min_tokens=4096,
-    ),
-}
-
-DEFAULT_MODEL = "claude-opus-5"
-DEFAULT_EFFORT = "high"
-
-
-def model_spec(model_id: str) -> ModelSpec:
-    return MODELS.get(model_id, MODELS[DEFAULT_MODEL])
-
-
-def request_kwargs(model_id: str, effort: str | None) -> dict[str, Any]:
-    """Build the model-dependent half of a Messages request.
-
-    Returns only what this model accepts, so a Haiku request simply has no
-    `output_config` or `thinking` key rather than one the API rejects.
-    """
-    spec = model_spec(model_id)
-    kwargs: dict[str, Any] = {"model": spec.id}
-    if spec.supports_adaptive_thinking:
-        kwargs["thinking"] = {"type": "adaptive"}
-    if spec.supports_effort:
-        chosen = effort if effort in spec.efforts else DEFAULT_EFFORT
-        kwargs["output_config"] = {"effort": chosen}
-    return kwargs
 
 
 # --------------------------------------------------------------------- config
 
+
 @dataclass
 class Config:
-    api_key: str = ""
-    model: str = DEFAULT_MODEL
-    effort: str = DEFAULT_EFFORT
-    library: str = ""
-    mirror_to_downloads: bool | None = None  # None = never asked
-    initials: str = ""
-    goals: dict[str, str] = field(default_factory=dict)
+    """The scraper's settings.
 
-    # ------------------------------------------------------------- lifecycle
+    This is the capture half of my-favorite-professor, so the config file it
+    reads is the same one -- a machine with both installed shares a single
+    library and a single mirror preference. It is read-only here: the full
+    app owns writing this file, and the scraper never calls save(), so it
+    cannot clobber a key or a model choice it doesn't know about.
+    """
+
+    library: str = ""
+    # The full app asks about this in Settings and stores the answer. There is
+    # no Settings screen here, so "never asked" means on: the second copy is
+    # the whole point of a scraper you keep material from. An explicit false in
+    # the config file is still honoured.
+    mirror_to_downloads: bool = True
 
     @classmethod
     def load(cls) -> "Config":
@@ -196,58 +103,20 @@ class Config:
             try:
                 data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
             except (json.JSONDecodeError, OSError):
-                # A corrupt config is not a crash. Everything in it is either
-                # re-enterable in Settings or has a working default.
+                # A corrupt config is not a crash. Everything in it has a
+                # working default.
                 data = {}
         known = {f for f in cls.__dataclass_fields__}
-        return cls(**{k: v for k, v in data.items() if k in known})
-
-    def save(self) -> None:
-        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        payload = {
-            "api_key": self.api_key,
-            "model": self.model,
-            "effort": self.effort,
-            "library": self.library,
-            "mirror_to_downloads": self.mirror_to_downloads,
-            "initials": self.initials,
-            "goals": self.goals,
-        }
-        # Write then chmod, and chmod the directory too: the key is the one
-        # genuinely sensitive thing this application stores.
-        CONFIG_FILE.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-        CONFIG_FILE.chmod(stat.S_IRUSR | stat.S_IWUSR)
-        CONFIG_DIR.chmod(stat.S_IRWXU)
-
-    # ---------------------------------------------------------------- access
-
-    def resolve_key(self) -> str:
-        """The key to use, config file first, then the environment."""
-        return self.api_key.strip() or os.environ.get("ANTHROPIC_API_KEY", "").strip()
-
-    @property
-    def has_key(self) -> bool:
-        return bool(self.resolve_key())
+        kept = {k: v for k, v in data.items() if k in known}
+        # A config written by the full app before the question was answered
+        # carries an explicit null, which would otherwise override the default.
+        if kept.get("mirror_to_downloads") is None:
+            kept.pop("mirror_to_downloads", None)
+        return cls(**kept)
 
     def library_path(self) -> Path:
-        from .capture.paths import library_root
+        from .capture.paths import library_root  # noqa: PLC0415
 
         if self.library.strip():
             return Path(self.library).expanduser()
         return library_root()
-
-    def public(self) -> dict[str, Any]:
-        """Everything the browser is allowed to know. Note the absent key."""
-        return {
-            "has_key": self.has_key,
-            "key_from_env": not self.api_key.strip() and self.has_key,
-            "model": self.model,
-            "effort": self.effort,
-            "library": str(self.library_path()),
-            "mirror_to_downloads": self.mirror_to_downloads,
-            "mirror_path": str(DOWNLOADS_MIRROR),
-            "initials": self.initials,
-            "goals": self.goals,
-            "models": [m.as_dict() for m in MODELS.values()],
-            "profile_dir": str(PROFILE_DIR),
-        }
