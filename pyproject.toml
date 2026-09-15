@@ -30,3 +30,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["professor", "tests"]
+
+# `mfp --man` looks beside the package as well as at the repo root, so the
+# manual survives a non-editable install too.
+force-include = { "man-mfp.md" = "professor/man-mfp.md" }

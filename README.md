@@ -9,7 +9,7 @@ years from now.
 
 It also walks GitHub trees and crawls whole documentation sections.
 
-No account, no API key, no server. It runs, it writes files, it exits.
+No account, no server, nothing to configure. It runs, it writes files, it exits.
 
 ---
 
@@ -41,19 +41,26 @@ works except pages that need JavaScript to render.
 
 ## Use
 
+Captures land **in the directory you run it from**, so `cd` to wherever you
+want the material first.
+
 ```sh
 mfp -py https://realpython.com/primer-on-python-decorators/
 ```
 
-`-py` is a **topic**, invented on the spot. It files the note under
-`py-professor/`. Typing `-python` later lands in the same place rather than
-making a second directory — `-py`, `-pyt` and `-python` all reach it.
+`-py` is a **topic**, invented on the spot. It creates `py-University/` and
+files the note in `py-University/py-Lecture/`. Typing `-python` later lands in
+the same place rather than making a second directory — `-py`, `-pyt` and
+`-python` all reach it.
 
-A dot nests one level, for a subject that belongs under one you already have:
+A dot picks a different lecture under the same university:
 
 ```sh
 mfp -py.async https://docs.python.org/3/library/asyncio.html
 ```
+
+That one files into `py-University/async-Lecture/`. The university is the
+subject; a lecture is one strand of it.
 
 ### Crawl a whole site section
 
@@ -61,10 +68,11 @@ mfp -py.async https://docs.python.org/3/library/asyncio.html
 mfp -py --full https://docs.example.com/guide/
 ```
 
-Follows every same-site link from that page, capturing each one it finds. It
-stops when the site runs out of new links or when `--max-pages` (default 200)
-is hit. Links to other domains are never followed. `--depth N` stops after N
-hops instead.
+Follows every same-site link from that page, capturing each one it finds into
+a lecture of its own — `guide-Lecture/`, named after the page you started
+from. It stops when the site runs out of new links or when `--max-pages`
+(default 200) is hit. Links to other domains are never followed. `--depth N`
+stops after N hops instead.
 
 ### Walk a GitHub repository
 
@@ -79,29 +87,77 @@ language. Dependencies, build output, lockfiles, minified bundles and binaries
 are skipped. Narrow it with `--only` and `--skip` globs, raise the ceiling with
 `--max-bytes`, or force `--page` to scrape the GitHub page as an ordinary page.
 
-**Full option reference:** [`professor/capture/MANUAL.md`](professor/capture/MANUAL.md) — a proper `mfp(1)` man page.
+**Full option reference:** [`man-mfp.md`](man-mfp.md) — a proper `mfp(1)` man
+page, also readable offline with `mfp --man`.
 
 ---
 
 ## Where files land
 
+Everything goes under the directory you ran `mfp` in:
+
 ```
-~/code/My-Favorite-Professor/
-  py-professor/
-    usr-references-provided/     the Markdown notes
-    .captures/                   the archives, images and all
-    async/                       a subtopic, same shape one level down
-
-~/Downloads/my-favorite-professor/
-  py-professor/<title>-<hash>.html    self-contained, opens anywhere
+./
+  .mfp/                             the alias dictionary and logs
+  py-University/
+    py-Lecture/                     where a bare -py lands
+      Primer on Python Decorators.md            the note you read
+      Primer on Python Decorators-a1b2c3d4.html self-contained, opens anywhere
+    async-Lecture/                  from -py.async
+    .captures/                      the archives, images and all
+      realpython-decorators-a1b2c3d4/
 ```
 
-The Downloads copy exists so your material isn't hostage to this program —
-double-click it, mail it to someone, read it offline. Filenames carry a
-content hash, so re-saving a page overwrites cleanly and two pages sharing a
-title can't clobber each other.
+Two files per capture, side by side. The Markdown note is yours to read and
+edit; the `.html` beside it has every image inlined, so you can double-click
+it, mail it to someone, or open it offline in ten years with none of this
+installed. Its filename carries a content hash, so re-saving a page overwrites
+cleanly and two pages sharing a title can't clobber each other.
 
-Set `MFP_LIBRARY` to put the library somewhere else.
+One `.captures/` serves every lecture in a university. It holds the raw
+archive each note was built from, which is what makes `--compile` work offline
+and lets a page be re-extracted without fetching it again.
+
+Set `MFP_LIBRARY` (or pass `--library PATH`) to capture somewhere other than
+the current directory.
+
+### The alias dictionary
+
+`.mfp/topics.json` is a dictionary of the shorthand you type to the directory
+it means:
+
+```json
+{
+  "aliases": {
+    "py":       "py-University",
+    "py.py":    "py-University/py-Lecture",
+    "py.async": "py-University/async-Lecture"
+  }
+}
+```
+
+It exists so `-py`, `-pyt` and `-python` keep landing in the same place. The
+first time you type a new alias, the tool compares it against the directories
+actually on disk — matching prefixes in either direction, so `-python` finds an
+existing `py-University/` — and **writes the answer back**. Every later use is
+a plain dictionary lookup rather than a fresh guess.
+
+A bare key names a university, a dotted key names a lecture inside one.
+`"py.py"` is not a special case: `mfp -py` asks the same question at both
+levels, so it records the same answer at both levels.
+
+The file is a cache, not the truth. Disk is the truth — you can rename or
+delete directories by hand, and `mfp --rebuild` regenerates the dictionary from
+what is actually there. Delete the file entirely and it comes back. Two
+commands to inspect and correct it:
+
+```sh
+mfp --topics                          # every university, lecture and alias
+mfp --link ml=machine-learning        # bind an alias the matcher got wrong
+```
+
+Hand-made `--link` bindings survive a rebuild, because string similarity can't
+rediscover a synonym.
 
 ---
 
@@ -117,15 +173,6 @@ Four tiers, escalating only as needed — most pages never leave the first:
 | **T4** | archive fallback |
 
 `--no-t3` stops after T2, which makes a failure fail faster.
-
----
-
-## Note for macOS
-
-Don't clone this next to a library at `~/code/My-Favorite-Professor` — the
-filesystem is case-insensitive, so `my-favorite-professor` and
-`My-Favorite-Professor` are the *same directory*, and the source ends up inside
-your material. Clone it anywhere else. `install.sh` warns you if you hit this.
 
 ---
 

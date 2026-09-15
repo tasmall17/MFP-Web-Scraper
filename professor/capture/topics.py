@@ -1,8 +1,8 @@
 """The topic funnel: decide which directory a capture belongs in.
 
 The problem this solves, in the user's words: "what if it's another page on
-python and I already have a py-professor dir with 3 things in it? I wouldn't
-want it to make a new directory, I would want it to add it to the py-professor
+python and I already have a py-University dir with 3 things in it? I wouldn't
+want it to make a new directory, I would want it to add it to the py-University
 dir."
 
 The shape is **normalize -> dictionary lookup -> slow path only on a miss**:
@@ -19,16 +19,21 @@ memoization -- caching the answer to "what did I mean by this word?"
 Two details make the fuzzy match actually work, and both were found by testing
 rather than guessing:
 
-1. **Compare stems.** Strip the "-professor" suffix from both sides first.
-   Otherwise every directory shares 10 characters of suffix, which dominates
-   the similarity ratio -- inflating unrelated pairs while doing nothing for
-   related ones.
+1. **Compare stems.** Strip the "-University"/"-Lecture" suffix from both sides
+   first. Otherwise every directory shares 10 characters of suffix, which
+   dominates the similarity ratio -- inflating unrelated pairs while doing
+   nothing for related ones.
 
 2. **Match prefixes in both directions.** The naive rule "slug is a prefix of
    an existing topic" is one-directional and misses the exact scenario above:
-   with `py-professor` on disk and `-python` typed, `python` is not a prefix of
+   with `py-University` on disk and `-python` typed, `python` is not a prefix of
    `py`, and difflib scores the pair 0.333 -- under any sane threshold. So it
    would create the duplicate. Checking *either* direction fixes it.
+
+Every capture lands in a lecture, so the funnel always runs twice: once to pick
+the university, once to pick the lecture inside it. A bare `-py` is simply the
+case where both levels are asked the same question, which is why it lands in
+`py-University/py-Lecture/` rather than loose in the university directory.
 
 Disk is authoritative; topics.json is a rebuildable cache. The user will create
 and rename directories by hand, so a registry that can't be regenerated from a
@@ -45,12 +50,13 @@ from pathlib import Path
 from .paths import (
     CAPTURES_DIR,
     INBOX_TOPIC,
-    MACHINE_DIR,
-    RESERVED_DIRNAMES,
-    TOPIC_STRUCTURE_DIRNAMES,
-    TOPIC_SUFFIX,
+    LECTURE_SUFFIX,
+    UNIVERSITY_SUFFIX,
+    ensure_lecture,
     ensure_library,
-    ensure_topic_layout,
+    ensure_university,
+    is_lecture,
+    is_university,
     slugify,
     topics_file,
 )
@@ -62,7 +68,7 @@ FUZZY_THRESHOLD = 0.72
 # three-character aliases and always have been.
 MIN_PREFIX_LEN = 2
 
-# Separates a topic from a subtopic in a CLI flag: `-js.react`.
+# Separates a university from a lecture in a CLI flag: `-js.react`.
 SUBTOPIC_SEP = "."
 
 
@@ -70,48 +76,54 @@ SUBTOPIC_SEP = "."
 class Resolution:
     """What the funnel decided, and why -- so the CLI can explain itself.
 
-    `action` always describes the directory captures actually land in, which
-    for `-js.react` is the subtopic. The parent's own outcome rides along in
-    `parent_action` so a first `-js.react` on an empty library can report both
-    directories it created rather than silently making one of them.
+    `directory` is always the **lecture**: the directory the note actually
+    lands in. The university's own outcome rides along in `university` and
+    `university_action` so a first `-js.react` on an empty library can report
+    both directories it created rather than silently making one of them.
     """
 
     directory: Path
     alias: str
     action: str  # "exact" | "bound" | "created"
+    university: Path
+    university_action: str
     matched_topic: str | None = None
     score: float | None = None
-    # Set only for a subtopic; None means `directory` is a top-level topic.
-    parent: Path | None = None
-    parent_action: str | None = None
 
     @property
     def is_new_directory(self) -> bool:
         return self.action == "created"
 
     @property
-    def is_subtopic(self) -> bool:
-        return self.parent is not None
+    def flag(self) -> str:
+        """The shortest flag that reaches this lecture again.
+
+        The dictionary key for a bare `-py` is 'py.py' -- the same question
+        asked at both levels -- which is correct storage and terrible advice to
+        print back at someone. When the lecture is its university's namesake,
+        the flag that gets you there is just '-py'.
+        """
+        head, _, tail = self.alias.partition(SUBTOPIC_SEP)
+        return head if head == tail or not tail else self.alias
 
     @property
     def label(self) -> str:
-        """The topic's identity everywhere outside the filesystem.
+        """The capture's identity everywhere outside the filesystem.
 
-        'js-professor', or 'js-professor/react' for a subtopic. This is what
-        goes in the manifest, the note id and the Downloads mirror -- all three
-        need a subtopic note to be distinguishable from a parent note that
-        happens to share its filename, and a bare 'react' would not be.
+        'js-University/js-Lecture'. This is what goes in the manifest and the
+        note id: two lectures under one university can hold notes with the same
+        filename, and a bare lecture name would not tell them apart.
         """
-        if self.parent is None:
-            return self.directory.name
-        return f"{self.parent.name}/{self.directory.name}"
+        return f"{self.university.name}/{self.directory.name}"
 
 
 def stem(name: str) -> str:
-    """'python-professor' -> 'python'.  '-py' -> 'py'."""
+    """'python-University' -> 'python'.  '-py' -> 'py'.  'py-Lecture' -> 'py'."""
     s = name.strip().lower().lstrip("-")
-    if s.endswith(TOPIC_SUFFIX):
-        s = s[: -len(TOPIC_SUFFIX)]
+    for suffix in (UNIVERSITY_SUFFIX.lower(), LECTURE_SUFFIX.lower()):
+        if s.endswith(suffix):
+            s = s[: -len(suffix)]
+            break
     return s.strip("-")
 
 
@@ -125,14 +137,14 @@ def split_alias(raw: str) -> tuple[str, str | None]:
 
     This has to run *before* normalize_alias(), and that ordering is the whole
     reason it is a separate function: slugify() rewrites '.' to '-', so a
-    dotted token handed to it whole comes back as the single topic name
-    'js-react' -- a plausible-looking directory that is not what anyone asked
-    for and gives no hint that nesting was ever attempted.
+    dotted token handed to it whole comes back as the single name 'js-react' --
+    a plausible-looking directory that is not what anyone asked for and gives
+    no hint that nesting was ever attempted.
 
-    Nesting stops at one level. A second dot is part of the subtopic name
-    rather than a grandchild, because the layout has exactly two levels and
-    quietly inventing a third would put captures somewhere find_capture()
-    cannot see them.
+    Nesting stops at one level. A second dot joins into the lecture name
+    ('-js.react.hooks' -> 'react-hooks-Lecture') rather than inventing a
+    grandchild, because the layout has exactly two levels and a third would put
+    captures somewhere find_capture() cannot see them.
     """
     token = raw.strip().lstrip("-")
     head, sep, tail = token.partition(SUBTOPIC_SEP)
@@ -152,25 +164,13 @@ def normalize_key(raw: str) -> str:
 
 
 def dir_name_for(alias: str) -> str:
-    """The directory a brand-new topic gets: 'py' -> 'py-professor'.
-
-    'inbox' is the one exception. It is where untagged captures land, not a
-    subject, and 'inbox-professor' reads like nonsense.
-    """
-    base = slugify(stem(alias))
-    if base == INBOX_TOPIC:
-        return INBOX_TOPIC
-    return f"{base}{TOPIC_SUFFIX}"
+    """The directory a brand-new university gets: 'py' -> 'py-University'."""
+    return f"{slugify(stem(alias)) or INBOX_TOPIC}{UNIVERSITY_SUFFIX}"
 
 
-def sub_dir_name_for(alias: str) -> str:
-    """The directory a brand-new subtopic gets: 'react' -> 'react'.
-
-    No '-professor' suffix, unlike a top-level topic. The professor is the
-    parent; a subtopic is one of the subjects that professor covers, and
-    'js-professor/react-professor/' would claim two of them.
-    """
-    return slugify(stem(alias)) or INBOX_TOPIC
+def lecture_dir_name_for(alias: str) -> str:
+    """The directory a brand-new lecture gets: 'react' -> 'react-Lecture'."""
+    return f"{slugify(stem(alias)) or INBOX_TOPIC}{LECTURE_SUFFIX}"
 
 
 def similarity(a: str, b: str) -> float:
@@ -197,7 +197,17 @@ def matches(a: str, b: str) -> tuple[bool, float]:
 
 
 class TopicRegistry:
-    """The alias dictionary, backed by .mfp/topics.json."""
+    """The alias dictionary, backed by .mfp/topics.json.
+
+    Two kinds of key live in one flat dictionary, told apart by the dot:
+
+        "py"        -> "py-University"                 a university
+        "py.async"  -> "py-University/async-Lecture"   a lecture inside it
+        "py.py"     -> "py-University/py-Lecture"      the bare `-py` lecture
+
+    The third is not a special case: `mfp -py` asks the same question at both
+    levels, so it writes the same answer at both levels.
+    """
 
     def __init__(self, root: Path | None = None):
         self.root = ensure_library(root)
@@ -223,7 +233,8 @@ class TopicRegistry:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "_comment": (
-                "Rebuildable cache of alias -> topic directory. Disk is "
+                "Rebuildable cache of alias -> directory. A bare key names a "
+                "university, a dotted key names a lecture inside one. Disk is "
                 "authoritative; delete this file and it regenerates."
             ),
             "aliases": dict(sorted(self._aliases.items())),
@@ -233,50 +244,40 @@ class TopicRegistry:
     # ------------------------------------------------------------------ disk
 
     def topic_dirs(self) -> list[Path]:
-        """Visible topic directories on disk, which are the real source of truth.
+        """The university directories, which are the real source of truth.
 
-        RESERVED_DIRNAMES is excluded here rather than at the call sites because
-        _absorb_disk() runs on every load and would otherwise mint an alias for
-        anything sitting beside the topics -- silently turning the learning
-        profile into a subject you could capture pages into.
+        Identified by their suffix rather than by "every visible directory",
+        because the library is now whatever directory you ran `mfp` in. That
+        directory belongs to you: it may hold a src/, a docs/ and a build/, and
+        adopting those as subjects -- writing an alias for each, then offering
+        to capture into them -- would be the funnel helping itself to a project
+        it was only visiting.
         """
         if not self.root.exists():
             return []
         return sorted(
             p
             for p in self.root.iterdir()
-            if p.is_dir()
-            and not p.name.startswith(".")
-            and p.name != MACHINE_DIR
-            and p.name not in RESERVED_DIRNAMES
+            if p.is_dir() and not p.name.startswith(".") and is_university(p)
         )
 
-    def subtopic_dirs(self, topic_dir: Path) -> list[Path]:
-        """Visible subtopic directories inside one topic.
+    def lecture_dirs(self, university_dir: Path) -> list[Path]:
+        """The lecture directories inside one university.
 
-        Anything that is not structure is a subtopic. Defining it by exclusion
-        rather than by a marker file is what lets `mkdir js-professor/react`
-        work as well as `mfp -n js.react` -- the same "disk is authoritative"
-        rule the top level already follows.
+        Same suffix rule, for the same reason plus one more: `mkdir
+        js-University/hooks-Lecture` works exactly as well as `mfp -n js.hooks`,
+        which is the "disk is authoritative" rule holding at both levels.
         """
-        if not topic_dir.is_dir():
+        if not university_dir.is_dir():
             return []
         return sorted(
             p
-            for p in topic_dir.iterdir()
-            if p.is_dir()
-            and not p.name.startswith(".")
-            and p.name not in TOPIC_STRUCTURE_DIRNAMES
+            for p in university_dir.iterdir()
+            if p.is_dir() and not p.name.startswith(".") and is_lecture(p)
         )
 
     def _rel(self, directory: Path) -> str:
-        """The stored form of a directory: 'js-professor', 'js-professor/react'.
-
-        Aliases have always mapped to something joinable onto the root, so a
-        subtopic needs no new storage shape and no migration -- a top-level
-        entry is its own relative path, byte for byte what older topics.json
-        files already contain.
-        """
+        """The stored form: 'js-University', or 'js-University/react-Lecture'."""
         return directory.relative_to(self.root).as_posix()
 
     def _prune_missing(self) -> None:
@@ -286,37 +287,43 @@ class TopicRegistry:
                 del self._aliases[alias]
 
     def _absorb_disk(self) -> None:
-        """Every topic and subtopic directory answers to its own stem, for free."""
-        for d in self.topic_dirs():
-            self._aliases.setdefault(stem(d.name), d.name)
-            for sub_dir in self.subtopic_dirs(d):
-                key = f"{stem(d.name)}{SUBTOPIC_SEP}{stem(sub_dir.name)}"
-                self._aliases.setdefault(key, self._rel(sub_dir))
+        """Every university and lecture answers to its own stem, for free."""
+        for university in self.topic_dirs():
+            self._aliases.setdefault(stem(university.name), university.name)
+            for lecture in self.lecture_dirs(university):
+                key = f"{stem(university.name)}{SUBTOPIC_SEP}{stem(lecture.name)}"
+                self._aliases.setdefault(key, self._rel(lecture))
 
     # ------------------------------------------------------------- resolution
 
     def resolve(self, raw_alias: str, *, force_new: bool = False) -> Resolution:
-        """Map a CLI topic flag to a directory, creating or binding as needed.
+        """Map a CLI topic flag to the lecture directory a capture lands in.
 
-        `-js` resolves one level, `-js.react` two. The second level runs the
-        same funnel against the parent's subtopics, so everything true of
-        topics is true of subtopics: '-js.rea' finds an existing react/, the
+        `-js` and `-js.react` differ only in what the second level is asked:
+        the bare form asks for a lecture named after the university itself.
+        Both levels run the same funnel, so everything true of universities is
+        true of lectures: '-js.rea' finds an existing react-Lecture/, the
         binding is written back, and only a genuine miss creates a directory.
         """
         head, tail = split_alias(raw_alias)
-        if tail is None:
-            return self._resolve_topic(head, force_new=force_new)
 
-        # force_new is deliberately NOT passed to the parent. On a dotted flag
-        # it means "a separate subtopic", and forcing the parent as well would
-        # answer `--new-topic -python.async`, with py-professor already on
-        # disk, by creating a second python-professor/ to hold it -- the exact
-        # duplicate the funnel exists to prevent, in the one command whose
-        # whole purpose is to be deliberate about creating a directory.
-        parent = self._resolve_topic(head)
-        return self._resolve_subtopic(parent, tail, force_new=force_new)
+        # force_new is deliberately NOT passed to the university. On a dotted
+        # flag it means "a separate lecture", and forcing the university as
+        # well would answer `--new-topic -python.async`, with py-University
+        # already on disk, by creating a second python-University/ to hold it --
+        # the exact duplicate the funnel exists to prevent, in the one command
+        # whose whole purpose is to be deliberate about creating a directory.
+        university, uni_action, uni_matched, uni_score = self._resolve_university(
+            head, force_new=force_new and tail is None
+        )
+        return self._resolve_lecture(
+            university, uni_action, tail if tail is not None else head,
+            force_new=force_new,
+            uni_matched=uni_matched, uni_score=uni_score,
+        )
 
-    def _resolve_topic(self, raw_alias: str, *, force_new: bool = False) -> Resolution:
+    def _resolve_university(self, raw_alias: str, *, force_new: bool = False
+                            ) -> tuple[Path, str, str | None, float | None]:
         alias = normalize_alias(raw_alias)
         if not alias:
             raise ValueError("empty topic alias")
@@ -325,8 +332,8 @@ class TopicRegistry:
         #    this is the only path that ever runs.
         if not force_new and alias in self._aliases:
             directory = self.root / self._aliases[alias]
-            if directory.is_dir():
-                return Resolution(directory, alias, "exact")
+            if directory.is_dir() and is_university(directory):
+                return directory, "exact", None, None
 
         # 2. Miss -> fuzzy scan against what is actually on disk.
         if not force_new:
@@ -335,44 +342,39 @@ class TopicRegistry:
                 directory, score = best
                 self._aliases[alias] = self._rel(directory)
                 self.save()
-                return Resolution(
-                    directory, alias, "bound",
-                    matched_topic=directory.name, score=score,
-                )
+                return directory, "bound", directory.name, score
 
-        # 3. No match -> a genuinely new topic.
-        directory = ensure_topic_layout(self.root / dir_name_for(alias))
+        # 3. No match -> a genuinely new university.
+        directory = ensure_university(self.root / dir_name_for(alias))
         self._aliases[alias] = self._rel(directory)
         self.save()
-        return Resolution(directory, alias, "created")
+        return directory, "created", None, None
 
-    def _resolve_subtopic(self, parent: Resolution, raw_sub: str, *,
-                          force_new: bool = False) -> Resolution:
-        """Second level of the funnel, inside an already-resolved parent.
-
-        force_new deliberately applies to the subtopic only. `--new-topic` on
-        `-js.react` means "a separate react/", not "a second js-professor/" --
-        forcing the parent too would strand the new subtopic in a duplicate
-        parent nobody asked for.
-        """
-        sub_alias = normalize_alias(raw_sub)
-        if not sub_alias:
-            raise ValueError("empty subtopic alias")
-        key = f"{parent.alias}{SUBTOPIC_SEP}{sub_alias}"
+    def _resolve_lecture(self, university: Path, university_action: str,
+                         raw_lecture: str, *, force_new: bool = False,
+                         uni_matched: str | None = None,
+                         uni_score: float | None = None) -> Resolution:
+        """Second level of the funnel, inside an already-resolved university."""
+        lecture_alias = normalize_alias(raw_lecture)
+        if not lecture_alias:
+            raise ValueError("empty lecture alias")
+        key = f"{normalize_alias(stem(university.name))}{SUBTOPIC_SEP}{lecture_alias}"
 
         def resolved(directory: Path, action: str, **extra) -> Resolution:
             return Resolution(
                 directory, key, action,
-                parent=parent.directory, parent_action=parent.action, **extra,
+                university=university, university_action=university_action,
+                **extra,
             )
 
         if not force_new and key in self._aliases:
             directory = self.root / self._aliases[key]
             if directory.is_dir():
-                return resolved(directory, "exact")
+                return resolved(directory, "exact",
+                                matched_topic=uni_matched, score=uni_score)
 
         if not force_new:
-            best = self._best_match(sub_alias, self.subtopic_dirs(parent.directory))
+            best = self._best_match(lecture_alias, self.lecture_dirs(university))
             if best is not None:
                 directory, score = best
                 self._aliases[key] = self._rel(directory)
@@ -380,9 +382,7 @@ class TopicRegistry:
                 return resolved(directory, "bound",
                                 matched_topic=directory.name, score=score)
 
-        directory = ensure_topic_layout(
-            parent.directory / sub_dir_name_for(sub_alias)
-        )
+        directory = ensure_lecture(university / lecture_dir_name_for(lecture_alias))
         self._aliases[key] = self._rel(directory)
         self.save()
         return resolved(directory, "created")
@@ -393,7 +393,7 @@ class TopicRegistry:
 
         Takes its candidates as an argument rather than reading topic_dirs()
         itself, which is what lets the identical rule serve both levels: the
-        subtopic pass simply hands it the parent's children.
+        lecture pass simply hands it one university's children.
         """
         target = stem(alias)
         best: tuple[Path, float] | None = None
@@ -401,9 +401,9 @@ class TopicRegistry:
             rel = self._rel(directory)
             # Compare against the directory's own stem and every alias already
             # bound to it, so '-py3' can find a dir reached earlier via '-py'.
-            # A subtopic alias is stored dotted ('js.react'), and only its last
+            # A lecture alias is stored dotted ('js.react'), and only its last
             # segment names this directory -- comparing the whole key would
-            # score the parent's name as part of the child's.
+            # score the university's name as part of the lecture's.
             candidates = {stem(directory.name)}
             candidates.update(
                 a.rpartition(SUBTOPIC_SEP)[2] or a
@@ -417,27 +417,27 @@ class TopicRegistry:
 
     # ------------------------------------------------------------ maintenance
 
-    def link(self, alias: str, topic_dir_name: str) -> Path:
+    def link(self, alias: str, target_name: str) -> Path:
         """Bind an alias by hand -- the fix for any bad automatic guess.
 
-        Both sides accept the dotted form, so a subtopic can be linked the same
-        way a topic can: `--link hooks=js-professor/react`, or
-        `--link js.hooks=js-professor/react`.
+        Both sides accept the dotted form, so a lecture can be linked the same
+        way a university can: `--link hooks=js-University/react-Lecture`, or
+        `--link js.hooks=js-University/react-Lecture`.
         """
         alias = normalize_key(alias)
-        target = topic_dir_name.strip().strip("/")
+        target = target_name.strip().strip("/")
         directory = self.root / target
         if not directory.is_dir():
-            # Accept a bare stem too: `--link ml=machine-learning` should work.
-            # For a nested target only the parent carries the suffix, so the
-            # stem is expanded on the first segment alone.
+            # Accept bare stems too: `--link ml=machine-learning` should work,
+            # and so should `--link ml=machine-learning/intro`.
             head, _, tail = target.partition("/")
-            alt = self.root / dir_name_for(head) / tail if tail else \
-                self.root / dir_name_for(head)
+            alt = self.root / dir_name_for(head)
+            if tail:
+                alt = alt / lecture_dir_name_for(tail)
             if alt.is_dir():
                 directory = alt
             else:
-                raise FileNotFoundError(f"no such topic directory: {topic_dir_name}")
+                raise FileNotFoundError(f"no such directory: {target_name}")
         self._aliases[alias] = self._rel(directory)
         self.save()
         return directory
@@ -447,7 +447,7 @@ class TopicRegistry:
 
         Hand-made links are kept as long as their target directory still
         exists. A rebuild that discarded them would quietly undo every
-        `--link ml=machine-learning-professor` the user ever made -- and those
+        `--link ml=machine-learning-University` the user ever made -- and those
         are exactly the bindings the fuzzy matcher can't rediscover on its own,
         since string similarity doesn't do synonyms.
         """
@@ -460,24 +460,26 @@ class TopicRegistry:
         self.save()
 
     def summary(self) -> list[tuple[str, list[str], int, int]]:
-        """(name, aliases, capture count, depth) for `--topics`.
+        """(name, aliases, item count, depth) for `--topics`.
 
-        Subtopics follow their parent, at depth 1, so the listing reads in the
-        same shape as the directory tree it describes.
+        Lectures follow their university, at depth 1, so the listing reads in
+        the same shape as the directory tree it describes. The count is
+        archived captures for a university and notes for a lecture -- the thing
+        you would actually find if you opened that directory.
         """
         rows: list[tuple[str, list[str], int, int]] = []
-        for directory in self.topic_dirs():
-            rows.append(self._summary_row(directory, 0))
-            for sub_dir in self.subtopic_dirs(directory):
-                rows.append(self._summary_row(sub_dir, 1))
+        for university in self.topic_dirs():
+            captures = university / CAPTURES_DIR
+            count = (
+                len([p for p in captures.iterdir() if p.is_dir()])
+                if captures.is_dir() else 0
+            )
+            rows.append((university.name, self._aliases_for(university), count, 0))
+            for lecture in self.lecture_dirs(university):
+                notes = len(list(lecture.glob("*.md")))
+                rows.append((lecture.name, self._aliases_for(lecture), notes, 1))
         return rows
 
-    def _summary_row(self, directory: Path, depth: int) -> tuple[str, list[str], int, int]:
+    def _aliases_for(self, directory: Path) -> list[str]:
         rel = self._rel(directory)
-        aliases = sorted(a for a, name in self._aliases.items() if name == rel)
-        captures = directory / CAPTURES_DIR
-        count = (
-            len([p for p in captures.iterdir() if p.is_dir()])
-            if captures.is_dir() else 0
-        )
-        return (directory.name, aliases, count, depth)
+        return sorted(a for a, name in self._aliases.items() if name == rel)

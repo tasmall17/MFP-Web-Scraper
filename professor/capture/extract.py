@@ -120,7 +120,10 @@ def extract(html: str, url: str, *, capture_slug: str,
         body = _body_fallback(html)
 
     body = (body or "").strip()
-    asset_prefix = f"{CAPTURES_DIR}/{capture_slug}/assets"
+    # Relative to the note, which lives in a lecture one level below the
+    # university holding .captures/. Without the ../ every image in every note
+    # resolves against the lecture directory and silently fails to load.
+    asset_prefix = f"../{CAPTURES_DIR}/{capture_slug}/assets"
     body = _rewrite_images(body, asset_mapping or {}, url, asset_prefix)
     # Collapse the run-on blank lines both converters like to emit.
     body = re.sub(r"\n{3,}", "\n\n", body)

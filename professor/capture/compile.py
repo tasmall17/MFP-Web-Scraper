@@ -187,15 +187,24 @@ def find_capture(target: str, root: Path) -> Path:
 
     # A .md note -> the capture its manifest points back to.
     #
-    # Notes now live one level deeper than they used to, inside
-    # usr-references-provided/ or claude-references-provided/, while .captures/
-    # stays put at the top of the topic. So the note's own directory is checked
-    # first (the original flat layout, and any note left there) and its parent
-    # second. The manifest's `note` field is a bare filename either way.
+    # A note lives in a lecture, one level below the university holding
+    # .captures/, so the note's parent is where the archive normally is. Its
+    # own directory is checked first anyway, which costs nothing and finds a
+    # note someone moved up beside the archive by hand. The manifest's `note`
+    # field is a bare filename either way.
+    #
+    # One .captures/ now serves every lecture under a university, so the note
+    # filename alone no longer identifies a capture: two lectures can each hold
+    # a note called "Index.md", and matching on the name would hand back
+    # whichever manifest sorted first. The manifest's `topic` ends with the
+    # lecture that owns it, so it is checked first, and a bare name match is
+    # kept only as the fallback for a note whose lecture can't be confirmed.
     if candidate.is_file() and candidate.suffix == ".md":
         for topic_dir in (candidate.parent, candidate.parent.parent):
             if (topic_dir / ".captures").is_dir():
                 break
+        lecture = candidate.parent.name
+        fallback: Path | None = None
         for capture in sorted((topic_dir / ".captures").glob("*")):
             manifest = capture / MANIFEST_NAME
             if manifest.exists():
@@ -204,9 +213,15 @@ def find_capture(target: str, root: Path) -> Path:
                 except (json.JSONDecodeError, OSError):
                     continue
                 if data.get("note") == candidate.name:
-                    return capture.resolve()
+                    if str(data.get("topic", "")).endswith(f"/{lecture}"):
+                        return capture.resolve()
+                    if fallback is None:
+                        fallback = capture
+        if fallback is not None:
+            return fallback.resolve()
 
-    # Two depths, because a subtopic keeps its own .captures/ one level down.
+    # Two depths: universities sit at the top of the library, but a library
+    # pointed at a parent directory puts them one level further down.
     # Globbed explicitly rather than with "**" so the search still cannot
     # descend into assets/ directories or a topic's own captures-within-captures.
     def at_either_depth(pattern: str) -> list[Path]:

@@ -14,6 +14,7 @@ set -euo pipefail
 TOOL_NAME="mfp-web-scraper"
 BIN_DIR="$HOME/.local/bin"
 WANT_BROWSER=1
+WANT_TIDY=1
 ASSUME_YES=0
 
 say()  { printf '\033[1m==>\033[0m %s\n' "$*"; }
@@ -26,7 +27,10 @@ Usage: ./install.sh [options]
 
   --no-browser   Skip the Chromium download. Uploading .md/.txt/.pdf still
                  works; capturing web pages (mfp -py <url>) does not.
-  -y, --yes      Don't prompt; install uv if it is missing.
+  --no-tidy      Leave the checkout visible in Finder. By default macOS is
+                 asked to hide everything here except README.md, so the
+                 folder shows your captured material and nothing else.
+  -y, --yes      Don't prompt; install uv if it is missing, and tidy.
   -h, --help     Show this message.
 USAGE
 }
@@ -34,6 +38,7 @@ USAGE
 while [ $# -gt 0 ]; do
     case "$1" in
         --no-browser) WANT_BROWSER=0 ;;
+        --no-tidy)    WANT_TIDY=0 ;;
         -y|--yes)     ASSUME_YES=1 ;;
         -h|--help)    usage; exit 0 ;;
         *)            usage >&2; die "unknown option: $1" ;;
@@ -52,19 +57,6 @@ grep -q 'name = "mfp-web-scraper"' pyproject.toml \
     || die "$REPO_DIR does not look like the MFP-Web-Scraper checkout"
 
 say "Installing from $REPO_DIR"
-
-# The macOS note from the README: ~/code/my-favorite-professor and a library at
-# ~/code/My-Favorite-Professor are the same directory on a case-insensitive
-# filesystem, and the source ends up inside the material.
-case "$REPO_DIR" in
-    "$HOME"/[cC]ode/*)
-        if [ "$(printf '%s' "$(basename "$REPO_DIR")" | tr '[:upper:]' '[:lower:]')" = "my-favorite-professor" ]; then
-            warn "this checkout sits at $REPO_DIR, where the default library lives."
-            warn "On macOS that is the same directory as My-Favorite-Professor."
-            warn "Clone it anywhere outside ~/code instead."
-        fi
-        ;;
-esac
 
 # ------------------------------------------------------------------------- uv
 
@@ -181,6 +173,34 @@ DNF
     fi
 fi
 
+# ------------------------------------------------------------------ tidy up
+
+# The checkout doubles as a place to capture into, so its own files compete for
+# attention with the material. macOS has a per-file "hidden" flag that Finder
+# honours, which is the only way to do this without renaming anything: dotting
+# `professor/` would break the import, and dotting install.sh or pyproject.toml
+# would break the install and how the repo reads on GitHub. Nothing here
+# touches git, and `ls` in a terminal is unaffected.
+HIDEABLE="pyproject.toml install.sh LICENSE professor tests man-mfp.md"
+
+if [ "$WANT_TIDY" -eq 1 ] && [ "$(uname -s)" = "Darwin" ]; then
+    reply=y
+    if [ "$ASSUME_YES" -eq 0 ] && [ -t 0 ]; then
+        printf 'Hide everything but README.md in Finder, so this folder shows\nonly your captured material? [Y/n] '
+        read -r reply
+        reply="${reply:-y}"
+    fi
+    case "$reply" in
+        [yY]*)
+            for item in $HIDEABLE; do
+                [ -e "$REPO_DIR/$item" ] && chflags hidden "$REPO_DIR/$item" 2>/dev/null
+            done
+            say "Hidden in Finder: $HIDEABLE"
+            say "Undo any time with:  chflags nohidden $HIDEABLE"
+            ;;
+    esac
+fi
+
 # ------------------------------------------------------------------- verify it
 
 say "Verifying"
@@ -201,12 +221,15 @@ if [ -n "$PATH_EDITED" ]; then
     echo
 fi
 cat <<'NEXT'
-  mfp -py <url>                   scrape one page into py-professor/
+  mfp -py <url>                   scrape one page into py-University/py-Lecture/
+  mfp -py.async <url>             a different lecture, same university
   mfp -py --full <url>            follow every same-site link from there
   mfp -py --repo owner/repo       walk a GitHub tree instead of a page
   mfp --self-test                 check the fetch ladder end to end
   mfp --help                      every option
 
-  No API key, no account, no server. Output lands in
-  ~/code/My-Favorite-Professor/ and a self-contained copy in ~/Downloads/.
+  mfp --man                       the full manual, offline
+
+  No account, no server, nothing to configure. Captures land in whichever
+  directory you run mfp in, so cd somewhere you want the material first.
 NEXT

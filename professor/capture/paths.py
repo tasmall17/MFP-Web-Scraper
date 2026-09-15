@@ -1,9 +1,24 @@
 """Where everything lives.
 
 One rule drives this module: the user sees exactly one Markdown file per
-capture. Every other artifact -- the alias dictionary, the audit log, the
-failure CSV, the archived HTML and its images -- is machinery, and machinery
-is hidden.
+capture, sitting in a lecture folder. Every other artifact -- the alias
+dictionary, the audit log, the failure CSV, the archived HTML and its images --
+is machinery, and machinery is hidden.
+
+The library is **the directory you run `mfp` in**. There is no fixed home for
+it: captures land beside you, in the project you are working on, and moving the
+material is a `mv` rather than a setting. MFP_LIBRARY (or --library) overrides
+that when you want one collection regardless of where you stand.
+
+    $PWD/
+      .mfp/                     alias dictionary, audit log, failure CSV
+      py-University/            a topic
+        py-Lecture/             its own lecture: notes for a bare `-py`
+          Primer on Decorators.md
+          Primer on Decorators-a1b2c3d4.html    self-contained, opens anywhere
+        async-Lecture/          from `mfp -py.async <url>`
+        .captures/              one archive per university, shared by lectures
+          realpython-decorators-a1b2c3d4/
 """
 
 from __future__ import annotations
@@ -12,88 +27,33 @@ import os
 import re
 from pathlib import Path
 
-LIBRARY_NAME = "My-Favorite-Professor"
-
-# Where to look for an existing library, in order. The original tool hardcoded
-# ~/Code, which resolves only because macOS is case-insensitive -- on Linux it
-# simply misses a library sitting in ~/code. Both spellings are checked so the
-# same default works on either filesystem.
-_LIBRARY_PARENTS = ("code", "Code", "Documents")
-
-DEFAULT_LIBRARY = Path.home() / "code" / LIBRARY_NAME
+# The two visible suffixes. Capitalised because they are read, not typed: the
+# alias you type is always the bare stem, and the funnel lowercases it.
+UNIVERSITY_SUFFIX = "-University"
+LECTURE_SUFFIX = "-Lecture"
 
 # The single hidden directory holding all cross-topic machinery.
 MACHINE_DIR = ".mfp"
-# Hidden directory inside each topic holding the archived pages.
+# Hidden directory inside each university holding the archived pages. It sits
+# at university level rather than inside a lecture so that every lecture shares
+# one archive, and so find_capture() stays a single-level glob.
 CAPTURES_DIR = ".captures"
 
-# Visible subdirectories inside a topic, splitting material by who chose it.
-# The distinction is the point: your own references are the primary source
-# Professor-Claude teaches from, and anything it fetched to fill a gap is
-# clearly marked as such rather than silently blended in.
-USER_REFS_DIR = "usr-references-provided"
-CLAUDE_REFS_DIR = "claude-references-provided"
-
-# Hidden, inside a topic: the generated syllabus and lesson cache.
-COURSE_DIR = ".mfp-course"
-
-TOPIC_SUFFIX = "-professor"
 INBOX_TOPIC = "inbox"
 
-# The structural directories that make up a topic. A subtopic is simply any
-# *other* visible directory inside one, so these four names are the only ones a
-# subtopic may not be called -- otherwise `-js.usr-references-provided` would
-# hand back the notes directory itself as somewhere to file notes.
-#
-# Only the two visible names can actually collide in practice; the dot-prefixed
-# pair are filtered out by the same rule that hides them everywhere else. They
-# are listed anyway so this set answers "what is structure?" rather than "what
-# does the current filter happen to miss?".
-TOPIC_STRUCTURE_DIRNAMES = frozenset({
-    USER_REFS_DIR,
-    CLAUDE_REFS_DIR,
-    CAPTURES_DIR,
-    COURSE_DIR,
-})
-
-# Visible directories at the library root that are emphatically not subjects.
-# The topic registry treats every non-dot directory it finds as a topic and
-# writes an alias for it, so anything that lands beside the topics gets adopted
-# as one -- a `usr-learning-profile/` at the root would start answering to
-# `-usr`. Hiding those directories would work but makes them hard to find and
-# copy, which defeats the point of a profile you can hand to someone.
-RESERVED_DIRNAMES = frozenset({
-    "usr-learning-profile",
-    "professor",
-    "tests",
-    "node_modules",
-})
-
-
-def _looks_like_source_checkout(path: Path) -> bool:
-    """Is this the application's own repo rather than a material library?
-
-    Worth checking because the app and the library want the same name, and on
-    a case-insensitive filesystem `my-favorite-professor` and
-    `My-Favorite-Professor` are the *same directory*. Cloning the repo beside
-    your library silently merges the two, and the first thing that notices is
-    the topic funnel offering `professor/` as a subject. Cheap to detect, very
-    confusing to debug.
-    """
-    return (path / "pyproject.toml").is_file() and (path / "professor").is_dir()
+# What is structure rather than a lecture, inside a university. Both are
+# dot-prefixed and so are already filtered out by the rule that hides them
+# everywhere else; they are named here so this set answers "what is structure?"
+# rather than "what does the current filter happen to miss?".
+TOPIC_STRUCTURE_DIRNAMES = frozenset({CAPTURES_DIR, MACHINE_DIR})
 
 
 def library_root() -> Path:
-    """The library directory. MFP_LIBRARY overrides everything else."""
+    """The library directory: where you are, unless MFP_LIBRARY says otherwise."""
     env = os.environ.get("MFP_LIBRARY", "").strip()
     if env:
         return Path(env).expanduser()
-
-    for parent in _LIBRARY_PARENTS:
-        candidate = Path.home() / parent / LIBRARY_NAME
-        if candidate.is_dir() and not _looks_like_source_checkout(candidate):
-            return candidate
-    return DEFAULT_LIBRARY
+    return Path.cwd()
 
 
 def machine_dir(root: Path | None = None) -> Path:
@@ -112,37 +72,46 @@ def failures_file(root: Path | None = None) -> Path:
     return machine_dir(root) / "failed-attempts.csv"
 
 
-def captures_dir(topic_dir: Path) -> Path:
-    return topic_dir / CAPTURES_DIR
+def is_university(path: Path) -> bool:
+    return path.name.lower().endswith(UNIVERSITY_SUFFIX.lower())
 
 
-def user_refs_dir(topic_dir: Path) -> Path:
-    return topic_dir / USER_REFS_DIR
+def is_lecture(path: Path) -> bool:
+    return path.name.lower().endswith(LECTURE_SUFFIX.lower())
 
 
-def claude_refs_dir(topic_dir: Path) -> Path:
-    return topic_dir / CLAUDE_REFS_DIR
+def university_of(lecture_dir: Path) -> Path:
+    """The university a lecture belongs to.
 
-
-def course_dir(topic_dir: Path) -> Path:
-    return topic_dir / COURSE_DIR
-
-
-def refs_dir_for(topic_dir: Path, source: str) -> Path:
-    """Which visible directory a note belongs in, given who chose the material.
-
-    `source` is the same value stored in the manifest, so the note's location
-    on disk and its provenance record can never drift apart.
+    Derived rather than passed around, because the resolver guarantees the
+    invariant it rests on: a lecture directory always sits *directly* inside
+    its university. That is the same relationship find_capture() walks when it
+    is handed a note and has to find the archive behind it.
     """
-    return claude_refs_dir(topic_dir) if source == "claude" else user_refs_dir(topic_dir)
+    return lecture_dir.parent
 
 
-def ensure_topic_layout(topic_dir: Path) -> Path:
-    """Create the subdirectories a topic needs. Safe to call repeatedly."""
-    topic_dir.mkdir(parents=True, exist_ok=True)
-    for sub in (CAPTURES_DIR, USER_REFS_DIR, CLAUDE_REFS_DIR, COURSE_DIR):
-        (topic_dir / sub).mkdir(exist_ok=True)
-    return topic_dir
+def captures_dir(university_dir: Path) -> Path:
+    """The archive directory, which belongs to a university, not a lecture."""
+    return university_dir / CAPTURES_DIR
+
+
+def captures_dir_for_lecture(lecture_dir: Path) -> Path:
+    return captures_dir(university_of(lecture_dir))
+
+
+def ensure_university(university_dir: Path) -> Path:
+    """Create a university and its archive directory. Safe to call repeatedly."""
+    university_dir.mkdir(parents=True, exist_ok=True)
+    captures_dir(university_dir).mkdir(exist_ok=True)
+    return university_dir
+
+
+def ensure_lecture(lecture_dir: Path) -> Path:
+    """Create a lecture, and the university above it if it isn't there yet."""
+    ensure_university(university_of(lecture_dir))
+    lecture_dir.mkdir(exist_ok=True)
+    return lecture_dir
 
 
 def ensure_library(root: Path | None = None) -> Path:

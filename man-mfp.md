@@ -2,7 +2,7 @@
 
 ## NAME
 
-**mfp**, **my-fav-professor** — capture a web page into a readable Markdown note plus a hidden, re-compilable archive
+**mfp** — capture a web page into a readable Markdown note plus a hidden, re-compilable archive
 
 ## SYNOPSIS
 
@@ -14,10 +14,11 @@ mfp -n NAME [--new-topic]
 mfp --compile CAPTURE [--pdf | --html] [--open]
 mfp --topics | --link ALIAS=TOPIC | --rebuild
 mfp --retry-failed | --self-test
+mfp --man [--open]
 mfp --help | --version
 ```
 
-`mfp` and `my-fav-professor` are the same program. Every option below works
+`mfp` is the only entry point. Every option below works
 under either name.
 
 ## DESCRIPTION
@@ -44,7 +45,7 @@ them (see **TOPIC FLAGS**).
 
 `-TOPIC`
 : Any flag-shaped word that is not a reserved option is read as a topic.
-  `mfp -py URL` files under `py-professor/`. See **TOPIC FLAGS**.
+  `mfp -py URL` files under `py-University/`. See **TOPIC FLAGS**.
 
 `--topic NAME`
 : Specify the topic explicitly. The escape hatch for a topic whose name
@@ -54,7 +55,7 @@ them (see **TOPIC FLAGS**).
 : Force a new directory instead of binding to a similar existing one. This is
   a modifier, not a command — it changes what `-TOPIC` or `-n` does. Compare:
   `mfp -n python` *creates a topic*; `mfp --new-topic -go URL` *captures*
-  while refusing to merge into an existing `google-professor/`.
+  while refusing to merge into an existing `google-University/`.
 
 `--no-t3`
 : Stop after the headless browser. Skips the stealth and archive tiers, which
@@ -93,13 +94,13 @@ them (see **TOPIC FLAGS**).
   topic before you have a page for it:
 
   ```
-  mfp -n python        →  creates python-professor/
+  mfp -n python        →  creates python-University/python-Lecture/
   mfp -py URL          →  lands there, because 'py' matches 'python'
   ```
 
   Idempotent, and funnel-aware. If a matching topic already exists it reports
   that instead of creating a near-duplicate — `mfp -n python` with
-  `py-professor/` already present will point you at `py-professor/` rather
+  `py-University/` already present will point you at `py-University/` rather
   than adding a second directory for the same subject. Combine with
   `--new-topic` to force a genuinely separate one.
 
@@ -133,18 +134,18 @@ them (see **TOPIC FLAGS**).
 Topics are invented at the call site. There is no list to maintain.
 
 ```
-mfp -py        URL  →  py-professor/
-mfp -rust      URL  →  rust-professor/
-mfp -py.async  URL  →  py-professor/async/
-mfp            URL  →  inbox/
+mfp -py        URL  →  py-University/py-Lecture/
+mfp -rust      URL  →  rust-University/rust-Lecture/
+mfp -py.async  URL  →  py-University/async-Lecture/
+mfp            URL  →  inbox-University/inbox-Lecture/
 ```
 
 An alias can be any length — `-py`, `-pyt` and `-python` all reach the same
-professor. A dot nests one level, for a subject that belongs *under* a
-professor rather than beside it.
+university. A dot picks a different lecture inside it, for a strand of the
+subject that deserves its own folder.
 
 If the topic does not exist it is created. If it does, the capture is added to
-it. The interesting case is the near-miss: you have `py-professor/` with three
+it. The interesting case is the near-miss: you have `py-University/` with three
 things in it, and later you type
 
 ```
@@ -154,7 +155,7 @@ mfp -python https://peps.python.org/pep-0318/
 This does **not** create a second directory. It reports
 
 ```
-topic: 'python' -> existing py-professor/  (use --new-topic to separate)
+topic: 'python' -> existing py-University/py-Lecture/  (use --new-topic to separate)
 ```
 
 ### Repositories
@@ -231,22 +232,25 @@ the site from being captured.
 | `--depth N` | Stop following links after N hops from the origin page. Unlimited by default. |
 | `--max-pages N` | Total page budget for the crawl (default 200). The real safety valve against a site that never runs out of "new" links (infinite pagination, a calendar widget). |
 
-### Subtopics
+### Lectures
 
-`-py.async` files into `py-professor/async/`. The subtopic is a separate
-subject with the same directories a topic has — its own notes and its own
-`.captures/` — sitting inside the topic it belongs to.
+Every capture lands in a lecture. A bare `-py` files into
+`py-University/py-Lecture/` — the university's namesake lecture — and
+`-py.async` files into `py-University/async-Lecture/` instead. Lectures share
+their university's single `.captures/`; only the notes and their self-contained
+copies are per-lecture.
 
-Nesting stops at one level. A second dot is read as part of the subtopic's
-name rather than a grandchild, because the layout has exactly two levels and
-a third would file captures where `--compile` cannot find them.
+Nesting stops at one level. A second dot joins into the lecture name
+(`-py.async.tasks` → `async-tasks-Lecture/`) rather than a grandchild, because
+the layout has exactly two levels and a third would file captures where
+`--compile` cannot find them.
 
-Everything true of topics is true of subtopics. `-py.asy` binds to an
-existing `async/` by the same rules below, the binding is written back as the
-dotted key `py.async`, and a directory you create by hand with `mkdir` is
-adopted on the next run. `--new-topic` applies to the subtopic alone, so
-`mfp --new-topic -py.async URL` makes a second `async/` under the *existing*
-professor rather than a second professor.
+Everything true of universities is true of lectures. `-py.asy` binds to an
+existing `async-Lecture/` by the same rules below, the binding is written back
+as the dotted key `py.async`, and a directory you create by hand with `mkdir`
+is adopted on the next run. `--new-topic` applies to the lecture alone, so
+`mfp --new-topic -py.async URL` makes a second lecture under the *existing*
+university rather than a second university.
 
 ### How the matching works
 
@@ -254,22 +258,24 @@ professor rather than a second professor.
 **normalize → dictionary lookup → slow path only on a miss**:
 
 1. **Exact hit.** Return the directory. O(1).
-2. **Miss.** Strip the `-professor` suffix from both the alias and every
-   candidate, then bind if either stem is a prefix of the other (minimum
+2. **Miss.** Strip the `-University`/`-Lecture` suffix from both the alias and
+   every candidate, then bind if either stem is a prefix of the other (minimum
    length 2), or if their similarity ratio is at least 0.72.
-3. **No match.** Create `TOPIC-professor/` and register the alias.
+3. **No match.** Create the directory and register the alias.
 
-For a dotted flag this runs twice: once for the professor, then again over
-that professor's subtopics. Only the parent carries the `-professor` suffix.
+This always runs twice: once over the universities, then again over the chosen
+university's lectures. A bare `-py` simply asks both levels the same question,
+which is why its dictionary entry is `py.py`. A key with no dot names a
+university; a dotted key names a lecture inside one.
 
 Whatever step 2 or 3 decides is **written back into the dictionary**, so the
 expensive comparison runs once per new alias ever; every later use is a plain
 lookup.
 
 Both refinements in step 2 are load-bearing. Comparing full directory names
-lets the shared 10-character `-professor` suffix dominate the ratio. And
+lets the shared 10-character `-University` suffix dominate the ratio. And
 matching prefixes in only one direction misses the common case: with
-`py-professor` on disk and `-python` typed, `python` is not a prefix of `py`,
+`py-University` on disk and `-python` typed, `python` is not a prefix of `py`,
 and the pair scores 0.333 — under any usable threshold. Checking both
 directions is what makes it work.
 
@@ -277,8 +283,8 @@ directions is what makes it work.
 
 | Case | Behaviour | Fix |
 |---|---|---|
-| `-go` with `google-professor` present | Binds, and says so | `--link` |
-| `-ml` with `machine-learning-professor` present | Does **not** bind — 0.222 | `--link ml=machine-learning-professor` |
+| `-go` with `google-University` present | Binds, and says so | `--link` |
+| `-ml` with `machine-learning-University` present | Does **not** bind — 0.222 | `--link ml=machine-learning-University` |
 
 String similarity cannot do synonyms. Link it once and it is remembered.
 Every decision is printed, so a wrong one is visible immediately.
@@ -286,25 +292,28 @@ Every decision is printed, so a wrong one is visible immediately.
 ## OUTPUT LAYOUT
 
 ```
-~/Code/My-Favorite-Professor/
+$PWD/                                     wherever you ran mfp
    .mfp/                                  machinery, hidden
       topics.json                         alias dictionary
       audit.log                           what happened, and when
       failed-attempts.csv                 what didn't
-   py-professor/
-      usr-references-provided/            ← the notes, the only visible part
-         Primer on Python Decorators.md
-      .captures/                          hidden archive
+   py-University/
+      py-Lecture/                         ← where a bare -py lands
+         Primer on Python Decorators.md      the note
+         Primer on Python Decorators-1a83ddee.html   self-contained copy
+      async-Lecture/                      another lecture: mfp -py.async URL
+         Asyncio Event Loops.md
+      .captures/                          hidden archive, one per university
          realpython-primer-...-1a83ddee/
             page.html                     rebuilt page, local image links
             assets/                       images, normalised
             manifest.json                 url, title, tier, asset map
             original.html                 raw DOM, to re-extract offline
-      async/                              a subtopic: mfp -py.async URL
-         usr-references-provided/         its own notes
-            Asyncio Event Loops.md
-         .captures/                       its own archive
 ```
+
+One `.captures/` serves every lecture under a university: the archive is the
+same artifact whichever lecture keeps the note, and holding it at one fixed
+depth is what lets `--compile` find it from a note path.
 
 The note carries Obsidian-style YAML frontmatter (`title`, `url`, `site`,
 `author`, `captured`, `topic`, `tier`, `tags`). Images are linked into the
@@ -365,10 +374,10 @@ everything else is lost you can take a timestamp to your browser history and
 find the page by hand.
 
 ```
-2026-08-08 10:56  CREATE  py-professor/  (from alias 'py')
+2026-08-08 10:56  CREATE  py-University/  (from alias 'py')
 2026-08-08 10:56  SAVED   https://realpython.com/primer-on-python-decorators/
-                          -> py-professor/Primer on Python Decorators.md  [T1]
-2026-08-08 10:57  LINK    alias 'python' -> existing py-professor/
+                          -> py-University/py-Lecture/Primer on Python Decorators.md  [T1]
+2026-08-08 10:57  LINK    alias 'python' -> existing py-University/py-Lecture/
 2026-08-08 10:57  UPDATE  https://realpython.com/...  overwrote prior capture
 2026-08-08 11:03  FAIL    https://example.com/404
                           T3b: ... -> wrote .mfp/failed-attempts.csv
@@ -415,19 +424,21 @@ dimension is dropped as an icon or tracking pixel. Capped at 150 images and
 ## ENVIRONMENT
 
 `MFP_LIBRARY`
-: Library root. Default `~/Code/My-Favorite-Professor`. `--library` overrides
-  it for one run.
+: Library root. Defaults to the current working directory, so captures land
+  where you are standing. `--library` overrides it for one run.
 
 ## FILES
 
 | Path | Purpose |
 |---|---|
-| `~/Code/My-Favorite-Professor/` | Library root |
+| `man-mfp.md` | This manual, in the checkout. `mfp --man` prints it |
+| `$PWD/` | Library root — the directory you ran `mfp` in |
 | `.mfp/topics.json` | Alias dictionary. Rebuildable — disk is authoritative |
 | `.mfp/audit.log` | Append-only action log |
 | `.mfp/failed-attempts.csv` | Failed captures |
-| `TOPIC/*.md` | The notes you read |
-| `TOPIC/.captures/*/` | Hidden archives |
+| `TOPIC-University/LECTURE-Lecture/*.md` | The notes you read |
+| `TOPIC-University/LECTURE-Lecture/*.html` | Self-contained copies |
+| `TOPIC-University/.captures/*/` | Hidden archives |
 
 ## EXAMPLES
 
@@ -445,7 +456,7 @@ mfp -py  https://peps.python.org/pep-0318/
 mfp -py3 https://docs.python.org/3/library/functools.html
 ```
 
-All three aliases resolve to the one `python-professor/` directory.
+All three aliases resolve to the one `python-University/` directory.
 
 Capture and open the note immediately:
 
@@ -463,7 +474,7 @@ See how topics are wired, then correct a wrong guess:
 
 ```
 mfp --topics
-mfp --link ml=machine-learning-professor
+mfp --link ml=machine-learning-University
 ```
 
 Work through everything that failed:
@@ -511,8 +522,10 @@ Two different URLs that produce the same page title get distinct notes — the
 second takes its URL hash as a filename suffix. Overwriting is keyed on the
 URL, never on the title.
 
-`~/Code/Article-Scraper` is a separate, unrelated project. This tool does not
-read from, write to, or depend on it.
+Captures land in the directory you run `mfp` in. Running it in two different
+directories gives you two independent libraries, each with its own `.mfp/`
+dictionary — nothing is shared between them and nothing is written to a fixed
+location in your home directory.
 
 ## SEE ALSO
 

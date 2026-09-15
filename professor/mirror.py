@@ -1,39 +1,37 @@
-"""The second copy, in ~/Downloads.
+"""The portable copy, in the lecture folder.
 
-Everything you save exists twice: once in the library, where the application
-reads it, and once in Downloads, where *you* can get at it without this program
-installed. The Downloads copy is a self-contained .html with its images inlined
--- double-click it, read it on a plane, mail it to someone.
+Everything you save exists twice: once as the Markdown note you read and edit,
+and once as a self-contained .html with its images inlined -- double-click it,
+read it on a plane, mail it to someone, open it in ten years without this
+program installed. Both sit in the same lecture directory, so the material
+travels as one folder you can copy anywhere.
 
-Filenames carry the capture's 8-character URL hash. The library can afford
-title-derived names because it has a manifest behind every note and can detect
-and repair collisions; a flat mirror directory has neither. Two pages that
-happen to share a title, or one page that gets retitled between captures, would
-otherwise silently overwrite or orphan a file in a directory you did not ask
-this program to manage. With the hash, re-saving the same URL is an idempotent
-overwrite and two different URLs can never land on the same name.
+Filenames carry the capture's 8-character URL hash. The note can afford a
+title-derived name because it has a manifest behind it and collisions are
+detected and repaired; the portable copy is a derived artifact and the hash is
+what makes re-saving the same URL an idempotent overwrite rather than a second
+file. It also keeps the two apart in a directory listing: `Decorators.md` is
+yours to edit, `Decorators-a1b2c3d4.html` is rebuilt from the archive whenever
+the page is captured again.
 """
 
 from __future__ import annotations
 
-import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
 from .capture.compile import CompileError, compile_html
 from .capture.paths import safe_filename
-from .config import DOWNLOADS_MIRROR
 
 
 @dataclass
 class MirrorResult:
-    note: Path | None = None
     page: Path | None = None
     error: str | None = None
 
     @property
     def ok(self) -> bool:
-        return self.note is not None
+        return self.page is not None
 
 
 def capture_digest(capture_dir: Path) -> str:
@@ -45,63 +43,37 @@ def mirror_name(title: str, capture_dir: Path) -> str:
     return f"{safe_filename(title)}-{capture_digest(capture_dir)}"
 
 
-def mirror_capture(
-    *,
-    capture_dir: Path,
-    note_path: Path,
-    title: str,
-    topic: str,
-    root: Path | None = None,
-) -> MirrorResult:
-    """Copy a finished capture into the Downloads mirror.
+def mirror_capture(*, capture_dir: Path, note_path: Path, title: str) -> MirrorResult:
+    """Build the self-contained page beside its note.
 
     Never fatal. A failure here means one convenience copy is missing, which
-    should not take down the save that already succeeded in the library -- so
-    the error is returned for reporting rather than raised.
+    should not take down the save that already succeeded -- so the error is
+    returned for reporting rather than raised. A capture with no page.html (a
+    plain .txt upload, say) simply has no portable copy to build.
     """
-    target_dir = (root or DOWNLOADS_MIRROR) / topic
-    try:
-        target_dir.mkdir(parents=True, exist_ok=True)
-    except OSError as exc:
-        return MirrorResult(error=f"could not create {target_dir}: {exc}")
-
+    target_dir = note_path.parent
     stem = mirror_name(title, capture_dir)
-    result = MirrorResult()
-
     try:
-        note_copy = target_dir / f"{stem}.md"
-        shutil.copy2(note_path, note_copy)
-        result.note = note_copy
-    except OSError as exc:
-        return MirrorResult(error=f"could not copy the note: {exc}")
-
-    # The self-contained page is the point of the mirror, but it is also the
-    # part that can fail on a capture with no page.html (a plain .txt upload,
-    # say). A missing page is not a failed mirror.
-    try:
-        result.page = compile_html(capture_dir, target_dir / f"{stem}.html")
+        return MirrorResult(page=compile_html(capture_dir, target_dir / f"{stem}.html"))
     except (CompileError, OSError) as exc:
-        result.error = f"note copied, page not built: {exc}"
-
-    return result
+        return MirrorResult(error=f"note saved, portable copy not built: {exc}")
 
 
-def prune_stale(*, title: str, capture_dir: Path, topic: str,
-                root: Path | None = None) -> None:
-    """Remove a mirrored pair left behind when a page changes title.
+def prune_stale(*, title: str, capture_dir: Path, note_path: Path) -> None:
+    """Remove a portable copy left behind when a page changes title.
 
     The hash keeps the *new* name stable and collision-free, but a retitled
     page still leaves its old name sitting there. The digest is what identifies
-    the pair as belonging to this capture, so anything sharing the digest and
+    the file as belonging to this capture, so anything sharing the digest and
     not matching the current name is a leftover.
     """
-    target_dir = (root or DOWNLOADS_MIRROR) / topic
+    target_dir = note_path.parent
     if not target_dir.is_dir():
         return
     digest = capture_digest(capture_dir)
     keep = mirror_name(title, capture_dir)
-    for path in target_dir.glob(f"*-{digest}.*"):
-        if path.stem != keep and path.suffix in {".md", ".html"}:
+    for path in target_dir.glob(f"*-{digest}.html"):
+        if path.stem != keep:
             try:
                 path.unlink()
             except OSError:

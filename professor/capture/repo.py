@@ -630,15 +630,15 @@ def capture_repo(url: str, *, topic: str, options: RepoOptions | None = None,
     )
 
 
-def write_repo_capture(result: RepoResult, *, topic_dir, topic: str,
+def write_repo_capture(result: RepoResult, *, lecture_dir, topic: str,
                        source: str = "user"):
     """File a repository document as an ordinary capture.
 
     Deliberately the same bundle a fetched page produces -- note in the
-    references directory, archive under .captures/, manifest beside it -- so
-    --compile, the Downloads mirror and the reading pane need to know nothing
-    about repositories. The archived artifact is the Markdown itself rather
-    than a DOM, because that *is* the original here.
+    lecture, archive under the university's .captures/, manifest beside it --
+    so --compile and the portable copy need to know nothing about
+    repositories. The archived artifact is the Markdown itself rather than a
+    DOM, because that *is* the original here.
     """
     import json  # noqa: PLC0415
     import shutil  # noqa: PLC0415
@@ -646,16 +646,15 @@ def write_repo_capture(result: RepoResult, *, topic_dir, topic: str,
 
     from .capture import MANIFEST_NAME, CaptureResult, capture_slug  # noqa: PLC0415
     from .paths import (  # noqa: PLC0415
-        captures_dir,
-        ensure_topic_layout,
-        refs_dir_for,
+        captures_dir_for_lecture,
+        ensure_lecture,
         safe_filename,
     )
 
-    ensure_topic_layout(topic_dir)
+    ensure_lecture(lecture_dir)
     url = result.target.web_url()
     slug = capture_slug(url)
-    capture_dir = captures_dir(topic_dir) / slug
+    capture_dir = captures_dir_for_lecture(lecture_dir) / slug
 
     prior = None
     manifest_path = capture_dir / MANIFEST_NAME
@@ -689,11 +688,11 @@ def write_repo_capture(result: RepoResult, *, topic_dir, topic: str,
     )
 
     note_name = f"{safe_filename(result.title)}.md"
-    note_path = refs_dir_for(topic_dir, source) / note_name
+    note_path = lecture_dir / note_name
     note_path.write_text(result.markdown, encoding="utf-8")
 
     if prior and prior.get("note") and prior["note"] != note_name:
-        stale = refs_dir_for(topic_dir, prior.get("source", source)) / prior["note"]
+        stale = lecture_dir / prior["note"]
         if stale.exists():
             stale.unlink()
 

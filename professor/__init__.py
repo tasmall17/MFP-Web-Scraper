@@ -5,12 +5,12 @@ hidden archive holding the page with its images normalised and inlined, so
 the material still works offline.
 
     capture/    the whole scraper -- fetch ladder, extraction, assets, CLI
-    mirror      the second copy, into ~/Downloads
+    mirror      the self-contained copy that sits beside the note
     markdown    Markdown -> HTML for the compiled archive
-    config      where the library lives, and whether to mirror
 
-This is the capture half of my-favorite-professor, packaged on its own.
-There is no server, no API key, and nothing that talks to Anthropic.
+Captures land in the directory you run it from. There is no server, no
+account, and nothing that talks to a network service other than the site you
+pointed it at.
 """
 
 from __future__ import annotations

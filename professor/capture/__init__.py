@@ -1,19 +1,14 @@
 """The capture layer: turn a web page into a study bundle.
 
-Vendored from the standalone `mfp` tool, unchanged in behaviour. It is a
-component of this application rather than a dependency so that cloning the repo
-gets you the "save the page you're reading" habit with no second install, and
-captures funnel straight into your library.
-
-The public surface, which the rest of the application builds on:
+The public surface:
 
     from professor.capture import capture_url, compile_capture
 
     result = capture_url("https://example.com/article", topic="py")
     pdf = compile_capture(result.capture_dir, as_pdf=True)
 
-`ingest.py` reaches one level deeper and calls `write_capture` directly, since
-it produces the same bundle from a local file instead of a fetched page.
+Anything producing the same bundle from a local file instead of a fetched page
+reaches one level deeper and calls `write_capture` directly.
 """
 
 from __future__ import annotations
@@ -42,8 +37,8 @@ def capture_url(url: str, topic: str | None = None, *, root: Path | None = None,
     result = fetch(url, max_tier=max_tier)
     return write_capture(
         result,
-        topic_dir=resolution.directory,
-        topic=resolution.directory.name,
+        lecture_dir=resolution.directory,
+        topic=resolution.label,
         original_url=url,
         quiet=quiet,
     )

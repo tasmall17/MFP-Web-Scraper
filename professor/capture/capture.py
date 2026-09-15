@@ -2,10 +2,11 @@
 
 Layout, and the reasoning behind it:
 
-    python-professor/
-       usr-references-provided/            <- material you chose
-          Primer on Python Decorators.md
-       claude-references-provided/         <- material Claude fetched for you
+    python-University/
+       python-Lecture/                     <- where a bare `-python` lands
+          Primer on Python Decorators.md      the note you actually read
+          Primer on Python Decorators-a1b2c3d4.html   self-contained copy
+       async-Lecture/                      <- from `-python.async`
        .captures/
           realpython-decorators-a1b2c3d4/
              page.html        reconstruction, relative asset refs
@@ -13,9 +14,10 @@ Layout, and the reasoning behind it:
              manifest.json    url, title, tier, source, asset map
              original.html    raw post-JS DOM, to re-extract without refetching
 
-Notes are split by provenance, but .captures/ deliberately is not: the archive
-is the same artifact whoever chose the page, and keeping it at one fixed depth
-is what lets find_capture() stay a single-level glob.
+Notes are split into lectures, but .captures/ deliberately is not: the archive
+is the same artifact whichever lecture chose to keep it, and holding it at one
+fixed depth is what lets find_capture() stay a single-level glob and lets two
+lectures share an image-heavy capture without a second copy.
 
 The capture directory is named from a **stable hash of the URL**, not the date.
 That is what makes re-capture an overwrite rather than an accumulation: the
@@ -38,9 +40,8 @@ from .assets import collect_image_urls, download_assets
 from .extract import extract
 from .fetch import FetchResult
 from .paths import (
-    captures_dir,
-    ensure_topic_layout,
-    refs_dir_for,
+    captures_dir_for_lecture,
+    ensure_lecture,
     safe_filename,
     slugify,
 )
@@ -140,7 +141,7 @@ def _existing_manifest(capture_dir: Path) -> dict | None:
         return None
 
 
-def _note_is_claimed(topic_dir: Path, note_name: str, exclude: Path) -> bool:
+def _note_is_claimed(lecture_dir: Path, note_name: str, exclude: Path) -> bool:
     """Does some *other* capture already own this note filename?
 
     Overwriting is keyed on the URL, not the title -- so two different URLs
@@ -149,7 +150,7 @@ def _note_is_claimed(topic_dir: Path, note_name: str, exclude: Path) -> bool:
     unchecked the second capture silently destroys the first one's note, which
     is the only file the user actually reads.
     """
-    captures = captures_dir(topic_dir)
+    captures = captures_dir_for_lecture(lecture_dir)
     if not captures.is_dir():
         return False
     for sibling in captures.iterdir():
@@ -157,11 +158,15 @@ def _note_is_claimed(topic_dir: Path, note_name: str, exclude: Path) -> bool:
             continue
         manifest = _existing_manifest(sibling)
         if manifest and manifest.get("note") == note_name:
-            return True
+            # One .captures/ now serves every lecture under a university, so a
+            # name is only actually taken if the capture holding it files into
+            # this same lecture. Two lectures may each have their own Index.md.
+            if manifest.get("topic", "").endswith(f"/{lecture_dir.name}"):
+                return True
     return False
 
 
-def _resolve_note_name(topic_dir: Path, title: str, capture_dir: Path,
+def _resolve_note_name(lecture_dir: Path, title: str, capture_dir: Path,
                        prior: dict | None) -> str:
     """Pick this capture's note filename, disambiguating on collision."""
     desired = f"{safe_filename(title)}.md"
@@ -170,16 +175,13 @@ def _resolve_note_name(topic_dir: Path, title: str, capture_dir: Path,
     if prior and prior.get("note") == desired:
         return desired
 
-    # A file already sitting under that name in either references directory
-    # counts as taken, even with no manifest behind it -- the user can drop a
-    # .md in by hand, and clobbering it would be the same data loss the
-    # manifest check exists to prevent.
-    on_disk = any(
-        refs_dir_for(topic_dir, src).joinpath(desired).exists()
-        for src in (SOURCE_USER, SOURCE_CLAUDE)
-    ) or (topic_dir / desired).exists()
+    # A file already sitting under that name in the lecture counts as taken,
+    # even with no manifest behind it -- the user can drop a .md in by hand,
+    # and clobbering it would be the same data loss the manifest check exists
+    # to prevent.
+    on_disk = (lecture_dir / desired).exists()
 
-    taken = _note_is_claimed(topic_dir, desired, capture_dir) or (
+    taken = _note_is_claimed(lecture_dir, desired, capture_dir) or (
         on_disk and not (prior and prior.get("note") == desired)
     )
     if not taken:
@@ -191,18 +193,18 @@ def _resolve_note_name(topic_dir: Path, title: str, capture_dir: Path,
     return f"{safe_filename(title)}-{digest}.md"
 
 
-def write_capture(result: FetchResult, *, topic_dir: Path, topic: str,
+def write_capture(result: FetchResult, *, lecture_dir: Path, topic: str,
                   original_url: str, quiet: bool = False,
                   source: str = SOURCE_USER) -> CaptureResult:
     """Archive a fetched page, replacing any previous capture of the same URL.
 
-    `source` decides which visible references directory the readable note lands
-    in. The archive under .captures/ is identical either way -- provenance is a
-    fact about who chose the material, not about how it was stored.
+    The note lands in `lecture_dir`; the archive lands in the .captures/ of the
+    university above it. `source` is recorded in the manifest as a fact about
+    who chose the material, and no longer decides where anything is written.
     """
-    ensure_topic_layout(topic_dir)
+    ensure_lecture(lecture_dir)
     slug = capture_slug(original_url)
-    capture_dir = captures_dir(topic_dir) / slug
+    capture_dir = captures_dir_for_lecture(lecture_dir) / slug
 
     prior = _existing_manifest(capture_dir)
     updated = prior is not None
@@ -232,24 +234,18 @@ def write_capture(result: FetchResult, *, topic_dir: Path, topic: str,
     _rewrite_html_assets(soup, report.mapping, result.final_url)
     (capture_dir / "page.html").write_text(str(soup), encoding="utf-8")
 
-    note_name = _resolve_note_name(topic_dir, extraction.title, capture_dir, prior)
-    note_path = refs_dir_for(topic_dir, source) / note_name
+    note_name = _resolve_note_name(lecture_dir, extraction.title, capture_dir, prior)
+    note_path = lecture_dir / note_name
 
     # A retitled page would otherwise leave its old note orphaned beside the
     # new one; the manifest is what lets us find and remove it. Only remove a
     # note this capture actually owned -- never one another capture claims.
     #
-    # The old note may sit in a different directory than the new one: either
-    # because this capture changed source, or because it predates the split and
-    # lives flat in the topic root. Check every place it could be.
     if prior and prior.get("note") and prior["note"] != note_name:
-        if not _note_is_claimed(topic_dir, prior["note"], capture_dir):
-            prior_source = prior.get("source", SOURCE_USER)
-            for parent in (refs_dir_for(topic_dir, prior_source), topic_dir):
-                stale = parent / prior["note"]
-                if stale.exists():
-                    stale.unlink()
-                    break
+        if not _note_is_claimed(lecture_dir, prior["note"], capture_dir):
+            stale = lecture_dir / prior["note"]
+            if stale.exists():
+                stale.unlink()
 
     note_path.write_text(extraction.markdown, encoding="utf-8")
 

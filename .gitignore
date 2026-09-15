@@ -1,16 +1,11 @@
-# Nothing personal should ever be in this repo. The three things that matter --
-# your API key, your learning profile, and your material library -- all live
-# outside the tree by design (~/.config, ~/.my-favorite-professor, and the
-# library root respectively). These entries are belt-and-braces in case someone
-# points a library at the checkout.
-config.json
-usr-learning-profile/
-usr-references-provided/
-claude-references-provided/
-*-professor/
-!professor/
+# Captured material must never be committed. Since the library is now whatever
+# directory you run `mfp` in, and running it inside this checkout is the normal
+# way to use it, these are load-bearing rather than belt-and-braces.
+*-University/
+*-Lecture/
 .mfp/
 .captures/
+!professor/
 
 # Python
 __pycache__/

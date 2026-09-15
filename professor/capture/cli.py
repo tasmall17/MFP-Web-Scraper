@@ -1,8 +1,8 @@
-"""Command line entry point, exposed as both `mfp` and `my-fav-professor`.
+"""Command line entry point, exposed as `mfp`.
 
     mfp -py https://realpython.com/decorators     # topic flags, invented on the spot
-    mfp -py.async https://.../asyncio             # a subtopic inside py-professor
-    mfp https://example.com/article               # no flag -> inbox
+    mfp -py.async https://.../asyncio             # another lecture in py-University
+    mfp https://example.com/article               # no flag -> inbox-University
 
 Topic flags are the interesting part. argparse cannot accept arbitrary unknown
 flags, so sys.argv is pre-scanned: the first token that looks like a flag and
@@ -33,7 +33,7 @@ RESERVED = {
     "--compile", "--pdf", "--html", "--open", "--retry-failed", "--self-test",
     "--timeout", "--library", "--quiet", "-q", "--topic", "--no-t3", "--rebuild",
     "-n", "--new", "--repo", "--page", "--max-bytes", "--only", "--skip",
-    "--full", "--depth", "--max-pages",
+    "--full", "--depth", "--max-pages", "--man",
 }
 
 # The dot is what separates a topic from a subtopic, so it has to survive the
@@ -79,22 +79,24 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         epilog=(
             "Topic flags are invented on the spot: `mfp -py <url>` files into "
-            "py-professor/. Type -python later and it lands in the same place. "
-            "A dot nests one level: `mfp -py.async <url>` files into "
-            "py-professor/async/, which is a separate subject under the same "
-            "professor."
+            "py-University/py-Lecture/, in the directory you are standing in. "
+            "Type -python later and it lands in the same place. A dot picks a "
+            "different lecture under the same university: `mfp -py.async <url>` "
+            "files into py-University/async-Lecture/."
         ),
     )
     parser.add_argument("target", nargs="?", help="URL to capture")
-    parser.add_argument("--version", action="version", version="my-favorite-professor 0.1.0")
+    parser.add_argument("--version", action="version", version="mfp-web-scraper 0.1.0")
+    parser.add_argument("--man", action="store_true",
+                        help="print the full manual (--open hands it to your reader)")
     parser.add_argument("--topics", action="store_true",
-                        help="list topic directories and their aliases")
+                        help="list universities, their lectures and their aliases")
     parser.add_argument("--rebuild", action="store_true",
                         help="regenerate the alias dictionary from disk")
     parser.add_argument("--link", metavar="ALIAS=TOPIC",
-                        help="bind an alias to an existing topic directory")
+                        help="bind an alias to an existing university or lecture")
     parser.add_argument("-n", "--new", metavar="NAME",
-                        help="create a topic directory without capturing anything")
+                        help="create a university (and lecture) without capturing anything")
     parser.add_argument("--new-topic", action="store_true",
                         help="force a new directory instead of matching an existing one")
     parser.add_argument("--compile", metavar="CAPTURE",
@@ -132,7 +134,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-pages", type=int, metavar="N",
                         help=f"with --full, total page budget "
                              f"(default {full_module.MAX_PAGES_DEFAULT})")
-    parser.add_argument("--library", metavar="PATH", help="override the library root")
+    parser.add_argument("--library", metavar="PATH",
+                        help="capture into PATH instead of the current directory")
     parser.add_argument("--quiet", "-q", action="store_true")
     return parser
 
@@ -147,6 +150,42 @@ def _root(args) -> Path:
     return ensure_library()
 
 
+MANUAL_NAME = "man-mfp.md"
+
+
+def _manual_path() -> Path | None:
+    """Find the man page, wherever this copy of the tool was installed from.
+
+    The repo root is the normal answer -- install.sh installs editable, so the
+    checkout is the source of truth. The other candidates cover a wheel built
+    with the manual force-included beside the package.
+    """
+    here = Path(__file__).resolve()
+    for candidate in (here.parents[2] / MANUAL_NAME,      # repo root, editable
+                      here.parents[1] / MANUAL_NAME,      # shipped in the wheel
+                      here.parent / MANUAL_NAME):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def do_man(open_after: bool = False) -> int:
+    """Print the manual, or hand it to whatever opens .md on this machine."""
+    manual = _manual_path()
+    if manual is None:
+        print("  the manual isn't installed alongside this copy of mfp.",
+              file=sys.stderr)
+        print("  read it at https://github.com/tasmall17/MFP-Web-Scraper",
+              file=sys.stderr)
+        return 1
+    if open_after:
+        _open_path(manual)
+        print(f"  {manual}")
+        return 0
+    sys.stdout.write(manual.read_text(encoding="utf-8"))
+    return 0
+
+
 def _open_path(path: Path) -> None:
     """Hand a finished artifact to the OS to open. Never fatal."""
     import subprocess  # noqa: PLC0415
@@ -158,49 +197,46 @@ def _open_path(path: Path) -> None:
         pass
 
 
-def _mirror(capture, topic: str, *, quiet: bool) -> str | None:
-    """Write the second copy into ~/Downloads, if that's been turned on.
+def _portable_copy(capture, *, quiet: bool) -> str | None:
+    """Build the self-contained .html beside the note it belongs to.
 
-    Deliberately best-effort and never fatal: the capture already succeeded in
-    the library, and losing a convenience copy is not a reason to report a
-    failed save. Imported here rather than at module scope so the capture layer
-    keeps working standalone if it is ever lifted back out.
+    Deliberately best-effort and never fatal: the note is already written, and
+    losing a derived convenience copy is not a reason to report a failed save.
+    Imported here rather than at module scope so the capture layer keeps
+    working standalone if it is ever lifted back out.
     """
-    from ..config import Config  # noqa: PLC0415
     from ..mirror import mirror_capture, prune_stale  # noqa: PLC0415
 
-    if not Config.load().mirror_to_downloads:
-        return None
-
-    prune_stale(title=capture.title, capture_dir=capture.capture_dir, topic=topic)
+    prune_stale(title=capture.title, capture_dir=capture.capture_dir,
+                note_path=capture.note_path)
     outcome = mirror_capture(
         capture_dir=capture.capture_dir, note_path=capture.note_path,
-        title=capture.title, topic=topic,
+        title=capture.title,
     )
     if outcome.error and not quiet:
         print(f"  note: {outcome.error}")
-    target = outcome.page or outcome.note
-    return str(target.parent) if target else None
+    return outcome.page.name if outcome.page else None
 
 
 def _announce_topic(resolution, root: Path, quiet: bool) -> None:
-    """Print and journal how a topic (or subtopic) alias resolved.
+    """Print and journal how an alias resolved, at both levels.
 
-    Shared by do_capture and do_full: a first `-js.react` can create two
-    directories, and reporting only the leaf would leave the new parent
-    unmentioned -- the parent is the one the user has to live with if the
-    funnel guessed its name wrong.
+    Shared by do_capture and do_full. A first `-js.react` creates two
+    directories, and reporting only the lecture would leave the new university
+    unmentioned -- that is the one the user has to live with if the funnel
+    guessed its name wrong.
     """
-    if resolution.is_subtopic and resolution.parent_action == "created":
-        journal.audit_create(resolution.parent, resolution.alias.split(".")[0], root=root)
+    if resolution.university_action == "created":
+        journal.audit_create(resolution.university, resolution.alias.split(".")[0],
+                             root=root)
         if not quiet:
-            print(f"  topic: created {resolution.parent.name}/")
+            print(f"  topic: created {resolution.university.name}/")
 
     if not quiet:
         if resolution.action == "created":
             print(f"  topic: created {resolution.label}/")
         elif resolution.action == "bound":
-            print(f"  topic: '{resolution.alias}' -> existing "
+            print(f"  topic: '{resolution.flag}' -> existing "
                   f"{resolution.label}/  (use --new-topic to separate)")
 
     if resolution.action == "created":
@@ -222,10 +258,9 @@ def do_capture(url: str, topic_flag: str | None, args, root: Path) -> int:
     # is actively wrong on one: fetching github.com/owner/repo renders a file
     # listing and a README and calls that the material. --page asks for the
     # rendered page anyway, --repo forces the walk on a URL not recognised as
-    # one. topic_dir is the leaf, and a subtopic directory has the identical
-    # layout a topic does, which is why nesting needs nothing from either tier.
-    # The *label* is the nested one, so the manifest and the mirror can tell a
-    # subtopic note apart from a parent note of the same name.
+    # one. Both tiers are handed the lecture directory and know nothing about
+    # universities; the *label* carries both names, so the manifest can tell
+    # two lectures' notes apart when they share a filename.
     walk_repo = args.repo or (
         not args.page and repo_module.parse_repo_url(url) is not None
     )
@@ -252,7 +287,7 @@ def do_capture(url: str, topic_flag: str | None, args, root: Path) -> int:
             return 1
 
         capture = repo_module.write_repo_capture(
-            document, topic_dir=resolution.directory, topic=resolution.label,
+            document, lecture_dir=resolution.directory, topic=resolution.label,
         )
     else:
         def announce(tier: str) -> None:
@@ -272,7 +307,7 @@ def do_capture(url: str, topic_flag: str | None, args, root: Path) -> int:
         document = None
         capture = write_capture(
             result,
-            topic_dir=resolution.directory,
+            lecture_dir=resolution.directory,
             topic=resolution.label,
             original_url=url,
             quiet=args.quiet,
@@ -280,7 +315,7 @@ def do_capture(url: str, topic_flag: str | None, args, root: Path) -> int:
     journal.audit_saved(url, capture.note_path, capture.tier,
                         updated=capture.updated, root=root)
 
-    mirrored = _mirror(capture, resolution.label, quiet=args.quiet)
+    portable = _portable_copy(capture, quiet=args.quiet)
 
     if not args.quiet:
         verb = "updated" if capture.updated else "saved"
@@ -302,8 +337,8 @@ def do_capture(url: str, topic_flag: str | None, args, root: Path) -> int:
         if capture.from_archive:
             detail += "  (from web archive)"
         print(detail)
-        if mirrored:
-            print(f"  {'copy:':<{_LABEL_W}}{mirrored}")
+        if portable:
+            print(f"  {'copy:':<{_LABEL_W}}{portable}")
     if getattr(args, "open_after", False):
         _open_path(capture.note_path)
     return 0
@@ -340,7 +375,7 @@ def do_full(url: str, topic_flag: str | None, args, root: Path) -> int:
             return
 
         capture = write_capture(
-            fetched, topic_dir=resolution.directory, topic=resolution.label,
+            fetched, lecture_dir=resolution.directory, topic=resolution.label,
             original_url=page_url, quiet=True,
         )
         journal.audit_saved(page_url, capture.note_path, capture.tier,
@@ -369,13 +404,13 @@ def do_new_topic(name: str, root: Path, *, force: bool = False) -> int:
 
     Seeding a topic and filling it later are separate motions:
 
-        mfp -n python                 create python-professor/
+        mfp -n python                 create python-University/python-Lecture/
         mfp -py <url>                 lands there ('py' matches 'python')
-        mfp -n python.async           create python-professor/async/
+        mfp -n python.async           create python-University/async-Lecture/
 
     Deliberately funnel-aware. Creating the directory blindly would let
-    `mfp -n python` sit a fresh python-professor/ next to an existing
-    py-professor/, which is exactly the duplicate the alias matcher exists to
+    `mfp -n python` sit a fresh python-University/ next to an existing
+    py-University/, which is exactly the duplicate the alias matcher exists to
     prevent -- so an existing match is reported instead. Idempotent: running
     it twice is harmless. Pass --new-topic to force a genuinely separate one.
     """
@@ -384,28 +419,29 @@ def do_new_topic(name: str, root: Path, *, force: bool = False) -> int:
 
     where = resolution.directory.resolve()
 
-    if resolution.is_subtopic and resolution.parent_action == "created":
-        journal.audit_create(resolution.parent, resolution.alias.split(".")[0], root=root)
-        print(f"  {'created:':<{_LABEL_W}}{resolution.parent.name}/")
+    if resolution.university_action == "created":
+        journal.audit_create(resolution.university, resolution.alias.split(".")[0],
+                             root=root)
+        print(f"  {'created:':<{_LABEL_W}}{resolution.university.name}/")
 
     if resolution.action == "created":
         journal.audit_create(resolution.directory, resolution.alias, root=root)
         print(f"  {'created:':<{_LABEL_W}}{resolution.label}/")
         print(f"  {'dir:':<{_LABEL_W}}{where}")
-        print(f"  {'now:':<{_LABEL_W}}mfp -{resolution.alias} <url>")
+        print(f"  {'now:':<{_LABEL_W}}mfp -{resolution.flag} <url>")
         return 0
 
     if resolution.action == "bound":
         journal.audit_link(resolution.alias, resolution.directory, root=root)
-        print(f"  '{resolution.alias}' already covered by {resolution.label}/")
+        print(f"  '{resolution.flag}' already covered by {resolution.label}/")
         print(f"  {'dir:':<{_LABEL_W}}{where}")
-        print(f"  captures with -{resolution.alias} will land there.")
+        print(f"  captures with -{resolution.flag} will land there.")
         print("  use --new-topic to make a separate directory anyway.")
         return 0
 
     print(f"  {resolution.label}/ already exists")
     print(f"  {'dir:':<{_LABEL_W}}{where}")
-    print(f"  {'use:':<{_LABEL_W}}mfp -{resolution.alias} <url>")
+    print(f"  {'use:':<{_LABEL_W}}mfp -{resolution.flag} <url>")
     return 0
 
 
@@ -413,13 +449,13 @@ def do_topics(root: Path) -> int:
     registry = TopicRegistry(root)
     rows = registry.summary()
     if not rows:
-        print("No topics yet. Try:  mfp -py https://realpython.com/decorators")
+        print("Nothing here yet. Try:  mfp -py https://realpython.com/decorators")
         return 0
     labels = [("  " * depth) + name for name, _, _, depth in rows]
     width = max(len(label) for label in labels)
-    print(f"{'TOPIC':<{width}}  CAPTURES  ALIASES")
+    print(f"{'TOPIC':<{width}}  ITEMS  ALIASES")
     for label, (_, aliases, count, _) in zip(labels, rows):
-        print(f"{label:<{width}}  {count:>8}  {', '.join(aliases) or '-'}")
+        print(f"{label:<{width}}  {count:>5}  {', '.join(aliases) or '-'}")
     return 0
 
 
@@ -529,6 +565,12 @@ def main(argv: list[str] | None = None) -> int:
     raw = list(sys.argv[1:] if argv is None else argv)
     topic_flag, rest = split_topic(raw)
     args = build_parser().parse_args(rest)
+
+    # Before _root(), which would otherwise create a library in the current
+    # directory as a side effect of asking to read the documentation.
+    if args.man:
+        return do_man(open_after=args.open_after)
+
     root = _root(args)
 
     if args.new:
